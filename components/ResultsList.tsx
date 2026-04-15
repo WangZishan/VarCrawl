@@ -11,15 +11,31 @@ interface Article {
 }
 
 interface Props {
-  data: { count: number; articles: Article[] };
+  data: {
+    count: number;
+    articles: Article[];
+    status?: {
+      complete: boolean;
+      likelyRateLimited: boolean;
+      likelyPartial: boolean;
+      message?: string;
+    };
+  };
 }
 
 export function ResultsList({ data }: Props) {
+  const statusMessage = data.status?.message;
+
   if (data.count === 0) {
     return (
       <div className="panel">
         <h2>PubMed results</h2>
-        <p style={{ color: "var(--muted)" }}>No articles found for any representation.</p>
+        {statusMessage && <p className="notice notice-warning">{statusMessage}</p>}
+        {data.status?.likelyRateLimited || data.status?.likelyPartial ? (
+          <p className="muted-text">No articles shown. This is likely due to temporary limits or upstream errors, not necessarily a true zero-match result.</p>
+        ) : (
+          <p className="muted-text">No articles found for any representation.</p>
+        )}
       </div>
     );
   }
@@ -34,6 +50,9 @@ export function ResultsList({ data }: Props) {
   return (
     <div className="panel">
       <h2>PubMed results ({data.count})</h2>
+      {statusMessage && (data.status?.likelyRateLimited || data.status?.likelyPartial) && (
+        <p className="notice notice-warning">{statusMessage}</p>
+      )}
       <div className="pubmed-nav" aria-label="Jump to PubMed section">
         {Array.from(grouped.entries()).map(([primary, items]) => {
           const id = `pubmed-${encodeURIComponent(primary)}`;

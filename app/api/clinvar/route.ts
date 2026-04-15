@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchClinvarForVariants } from "@/lib/clinvar/entrez";
+import { searchClinvarForVariantsDetailed } from "@/lib/clinvar/entrez";
 import { filterClinvarRecords } from "@/lib/clinvar/filter";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
 import { checkRateLimit } from "@/lib/ratelimit";
@@ -19,11 +19,53 @@ interface Body {
   proteinForms?: string[];
 }
 
+interface SourceStatus {
+  complete: boolean;
+  likelyRateLimited: boolean;
+  likelyPartial: boolean;
+  message?: string;
+}
+
+function buildStatusFromDiagnostics(diag: {
+  likelyPartial: boolean;
+  likelyRateLimited: boolean;
+}): SourceStatus {
+  if (diag.likelyRateLimited) {
+    return {
+      complete: false,
+      likelyRateLimited: true,
+      likelyPartial: true,
+      message: "ClinVar may be incomplete due to NCBI rate limiting. Please retry shortly.",
+    };
+  }
+  if (diag.likelyPartial) {
+    return {
+      complete: false,
+      likelyRateLimited: false,
+      likelyPartial: true,
+      message: "ClinVar may be incomplete due to temporary upstream errors.",
+    };
+  }
+  return {
+    complete: true,
+    likelyRateLimited: false,
+    likelyPartial: false,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit(req);
   if (rl && !rl.success) {
     return NextResponse.json(
-      { error: "Rate limit exceeded" },
+      {
+        error: "Rate limit exceeded",
+        status: {
+          complete: false,
+          likelyRateLimited: true,
+          likelyPartial: true,
+          message: "ClinVar request blocked by server rate limit. Retry later.",
+        },
+      },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
     );
   }
@@ -60,13 +102,15 @@ export async function POST(req: NextRequest) {
     tool: "varcrawl",
   };
 
-  const all = await searchClinvarForVariants(variants, cfg);
+  const searchRes = await searchClinvarForVariantsDetailed(variants, cfg);
+  const all = searchRes.records;
   const { kept } = filterClinvarRecords(all, { gene, proteinForms });
   const resp = {
     count: kept.length,
     unfilteredCount: all.length,
     gene,
     proteinForms,
+    status: buildStatusFromDiagnostics(searchRes.diagnostics),
     records: kept,
   };
   await cacheSet(cacheKey, resp, 3600 * 6);

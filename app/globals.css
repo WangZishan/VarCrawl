@@ -1,13 +1,69 @@
 :root {
-  --bg: #0b1020;
-  --panel: #121a33;
-  --panel-2: #0f1630;
-  --text: #e7ecf5;
-  --muted: #8a95ad;
-  --accent: #7c9cff;
-  --accent-2: #5be0c8;
-  --danger: #ff6b6b;
-  --border: #22305a;
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --panel-2: #edf2fa;
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #1d4ed8;
+  --accent-2: #0f766e;
+  --danger: #b91c1c;
+  --border: #cbd5e1;
+  --button-fg: #ffffff;
+  --error-bg: #fee2e2;
+  --error-text: #7f1d1d;
+  --mane-select-bg: #dbeafe;
+  --mane-plus-bg: #ccfbf1;
+  --consequence-bg: #ccfbf1;
+  --sig-path-bg: #fee2e2;
+  --sig-path-fg: #991b1b;
+  --sig-path-border: #dc2626;
+  --sig-lpath-bg: #ffedd5;
+  --sig-lpath-fg: #9a3412;
+  --sig-lpath-border: #ea580c;
+  --sig-vus-bg: #fef3c7;
+  --sig-vus-fg: #92400e;
+  --sig-vus-border: #d97706;
+  --sig-lbenign-bg: #ccfbf1;
+  --sig-lbenign-fg: #115e59;
+  --sig-lbenign-border: #0d9488;
+  --sig-benign-bg: #99f6e4;
+  --sig-benign-fg: #0f766e;
+  --sig-benign-border: #0d9488;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --panel: #121a33;
+    --panel-2: #0f1630;
+    --text: #e7ecf5;
+    --muted: #a8b3ca;
+    --accent: #93b4ff;
+    --accent-2: #68e7d0;
+    --danger: #ff7d7d;
+    --border: #2a3a68;
+    --button-fg: #081024;
+    --error-bg: rgba(255, 107, 107, 0.15);
+    --error-text: #ffd9d9;
+    --mane-select-bg: rgba(124, 156, 255, 0.2);
+    --mane-plus-bg: rgba(91, 224, 200, 0.16);
+    --consequence-bg: rgba(91, 224, 200, 0.16);
+    --sig-path-bg: rgba(255, 107, 107, 0.2);
+    --sig-path-fg: #ffc2c2;
+    --sig-path-border: #ff7d7d;
+    --sig-lpath-bg: rgba(255, 170, 107, 0.2);
+    --sig-lpath-fg: #ffe0c2;
+    --sig-lpath-border: #ffb172;
+    --sig-vus-bg: rgba(255, 220, 107, 0.17);
+    --sig-vus-fg: #ffeabf;
+    --sig-vus-border: #ffd56d;
+    --sig-lbenign-bg: rgba(91, 224, 200, 0.14);
+    --sig-lbenign-fg: #c8f4ea;
+    --sig-lbenign-border: #68e7d0;
+    --sig-benign-bg: rgba(91, 224, 200, 0.2);
+    --sig-benign-fg: #68e7d0;
+    --sig-benign-border: #68e7d0;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -20,6 +76,10 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 15px;
   line-height: 1.5;
+}
+
+html {
+  color-scheme: light dark;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -56,6 +116,9 @@ h1 {
   font-size: 15px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.form input[type="text"]::placeholder {
+  color: var(--muted);
+}
 .form select {
   padding: 12px 14px;
   background: var(--panel);
@@ -67,13 +130,25 @@ h1 {
 .form button {
   padding: 12px 20px;
   background: var(--accent);
-  color: #0b1020;
+  color: var(--button-fg);
   border: 0;
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
 }
+.form button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .form button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible,
+code:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .examples {
   color: var(--muted);
@@ -138,12 +213,12 @@ h1 {
   vertical-align: middle;
 }
 .mane-badge.mane-select {
-  background: rgba(124, 156, 255, 0.2);
+  background: var(--mane-select-bg);
   color: var(--accent);
   border: 1px solid var(--accent);
 }
 .mane-badge.mane-plus {
-  background: rgba(91, 224, 200, 0.15);
+  background: var(--mane-plus-bg);
   color: var(--accent-2);
   border: 1px solid var(--accent-2);
 }
@@ -154,7 +229,7 @@ h1 {
 }
 
 .consequence-pill {
-  background: rgba(91, 224, 200, 0.15);
+  background: var(--consequence-bg);
   color: var(--accent-2);
   padding: 2px 8px;
   border-radius: 10px;
@@ -170,6 +245,23 @@ h1 {
 .muted-small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.muted-text {
+  color: var(--muted);
+}
+
+.notice {
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0 10px;
+  font-size: 13px;
+}
+
+.notice-warning {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
 }
 
 .variant-list {
@@ -198,9 +290,9 @@ h1 {
 }
 
 .error {
-  background: rgba(255, 107, 107, 0.12);
+  background: var(--error-bg);
   border: 1px solid var(--danger);
-  color: #ffd1d1;
+  color: var(--error-text);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -287,9 +379,9 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.sig-badge.sig-path     { background: rgba(255, 107, 107, 0.2); color: #ffb4b4; border: 1px solid #ff6b6b; }
-.sig-badge.sig-lpath    { background: rgba(255, 170, 107, 0.2); color: #ffd4b4; border: 1px solid #ffaa6b; }
-.sig-badge.sig-vus      { background: rgba(255, 220, 107, 0.15); color: #ffe8b4; border: 1px solid #ffdc6b; }
-.sig-badge.sig-lbenign  { background: rgba(91, 224, 200, 0.12); color: #bfece0; border: 1px solid #5be0c8; }
-.sig-badge.sig-benign   { background: rgba(91, 224, 200, 0.18); color: #5be0c8; border: 1px solid #5be0c8; }
+.sig-badge.sig-path     { background: var(--sig-path-bg); color: var(--sig-path-fg); border: 1px solid var(--sig-path-border); }
+.sig-badge.sig-lpath    { background: var(--sig-lpath-bg); color: var(--sig-lpath-fg); border: 1px solid var(--sig-lpath-border); }
+.sig-badge.sig-vus      { background: var(--sig-vus-bg); color: var(--sig-vus-fg); border: 1px solid var(--sig-vus-border); }
+.sig-badge.sig-lbenign  { background: var(--sig-lbenign-bg); color: var(--sig-lbenign-fg); border: 1px solid var(--sig-lbenign-border); }
+.sig-badge.sig-benign   { background: var(--sig-benign-bg); color: var(--sig-benign-fg); border: 1px solid var(--sig-benign-border); }
 .sig-badge.sig-other    { background: transparent; color: var(--muted); border: 1px solid var(--muted); }

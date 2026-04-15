@@ -7,7 +7,12 @@
  *   - Then one batched esummary for all unique PMIDs (chunks of 200 IDs).
  */
 
-import { EntrezConfig, esummaryBatch, searchPhrasesInDb } from "@/lib/entrez/base";
+import {
+  EntrezConfig,
+  EntrezDiagnostics,
+  esummaryBatchWithDiagnostics,
+  searchPhrasesInDbWithDiagnostics,
+} from "@/lib/entrez/base";
 
 export type { EntrezConfig };
 
@@ -19,6 +24,11 @@ export interface PubmedArticle {
   pubDate: string;
   doi?: string;
   matchedBy: string[];
+}
+
+export interface PubmedSearchResult {
+  articles: PubmedArticle[];
+  diagnostics: EntrezDiagnostics;
 }
 
 interface EsummaryDocsum {
@@ -36,10 +46,25 @@ export async function searchPubmedForVariants(
   variants: string[],
   cfg: EntrezConfig,
 ): Promise<PubmedArticle[]> {
-  const matched = await searchPhrasesInDb("pubmed", variants, cfg);
+  const res = await searchPubmedForVariantsDetailed(variants, cfg);
+  return res.articles;
+}
+
+export async function searchPubmedForVariantsDetailed(
+  variants: string[],
+  cfg: EntrezConfig,
+): Promise<PubmedSearchResult> {
+  const phraseRes = await searchPhrasesInDbWithDiagnostics("pubmed", variants, cfg);
+  const matched = phraseRes.matched;
   const allIds = Array.from(matched.keys());
-  if (allIds.length === 0) return [];
-  const summaries = await esummaryBatch<EsummaryDocsum>("pubmed", allIds, cfg);
+  if (allIds.length === 0) {
+    return {
+      articles: [],
+      diagnostics: phraseRes.diagnostics,
+    };
+  }
+  const summaryRes = await esummaryBatchWithDiagnostics<EsummaryDocsum>("pubmed", allIds, cfg);
+  const summaries = summaryRes.summaries;
 
   const articles: PubmedArticle[] = [];
   for (const [pmid, matchedSet] of matched) {
@@ -67,5 +92,19 @@ export async function searchPubmedForVariants(
     });
   }
   articles.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-  return articles;
+  return {
+    articles,
+    diagnostics: {
+      ...phraseRes.diagnostics,
+      summaryBatchCount: summaryRes.diagnostics.summaryBatchCount,
+      failedSummaryBatchCount: summaryRes.diagnostics.failedSummaryBatchCount,
+      rateLimitedSummaryBatchCount: summaryRes.diagnostics.rateLimitedSummaryBatchCount,
+      likelyPartial:
+        phraseRes.diagnostics.failedPhraseCount > 0 ||
+        summaryRes.diagnostics.failedSummaryBatchCount > 0,
+      likelyRateLimited:
+        phraseRes.diagnostics.rateLimitedPhraseCount > 0 ||
+        summaryRes.diagnostics.rateLimitedSummaryBatchCount > 0,
+    },
+  };
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchPubmedForVariants } from "@/lib/pubmed/entrez";
+import { searchPubmedForVariantsDetailed } from "@/lib/pubmed/entrez";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
 import { checkRateLimit } from "@/lib/ratelimit";
 
@@ -10,11 +10,53 @@ interface Body {
   variants: string[];
 }
 
+interface SourceStatus {
+  complete: boolean;
+  likelyRateLimited: boolean;
+  likelyPartial: boolean;
+  message?: string;
+}
+
+function buildStatusFromDiagnostics(diag: {
+  likelyPartial: boolean;
+  likelyRateLimited: boolean;
+}): SourceStatus {
+  if (diag.likelyRateLimited) {
+    return {
+      complete: false,
+      likelyRateLimited: true,
+      likelyPartial: true,
+      message: "PubMed may be incomplete due to NCBI rate limiting. Please retry shortly.",
+    };
+  }
+  if (diag.likelyPartial) {
+    return {
+      complete: false,
+      likelyRateLimited: false,
+      likelyPartial: true,
+      message: "PubMed may be incomplete due to temporary upstream errors.",
+    };
+  }
+  return {
+    complete: true,
+    likelyRateLimited: false,
+    likelyPartial: false,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit(req);
   if (rl && !rl.success) {
     return NextResponse.json(
-      { error: "Rate limit exceeded" },
+      {
+        error: "Rate limit exceeded",
+        status: {
+          complete: false,
+          likelyRateLimited: true,
+          likelyPartial: true,
+          message: "PubMed request blocked by server rate limit. Retry later.",
+        },
+      },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
     );
   }
@@ -49,8 +91,12 @@ export async function POST(req: NextRequest) {
     tool: "varcrawl",
   };
 
-  const articles = await searchPubmedForVariants(variants, cfg);
-  const resp = { count: articles.length, articles };
+  const { articles, diagnostics } = await searchPubmedForVariantsDetailed(variants, cfg);
+  const resp = {
+    count: articles.length,
+    articles,
+    status: buildStatusFromDiagnostics(diagnostics),
+  };
   await cacheSet(cacheKey, resp, 3600 * 6); // 6h TTL — new pubs land often enough
   return NextResponse.json(resp);
 }

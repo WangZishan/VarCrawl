@@ -44,6 +44,7 @@ interface ExpandResponse {
 
 interface PubmedResponse {
   count: number;
+  status?: SourceStatus;
   articles: {
     pmid: string;
     title: string;
@@ -60,6 +61,7 @@ interface ClinvarResponse {
   unfilteredCount?: number;
   gene?: string;
   proteinForms?: string[];
+  status?: SourceStatus;
   records: {
     uid: string;
     accession?: string;
@@ -71,6 +73,13 @@ interface ClinvarResponse {
     conditions: string[];
     matchedBy: string[];
   }[];
+}
+
+interface SourceStatus {
+  complete: boolean;
+  likelyRateLimited: boolean;
+  likelyPartial: boolean;
+  message?: string;
 }
 
 function buildProteinForms(expand: ExpandResponse): string[] {
@@ -129,18 +138,25 @@ function buildPubmedSearchTerms(expand: ExpandResponse): string[] {
   }
 
   const withContext: string[] = [];
+
+  const shouldAddTranscriptContext = (variant: string): boolean => {
+    // Transcript-prefixing only helps for bare HGVS c./p. forms.
+    return /^c\./i.test(variant) || /^p\./i.test(variant);
+  };
+
   for (const v of baseVariants) {
     const hasGene = !!escapedGene && new RegExp(`\\b${escapedGene}\\b`, "i").test(v);
     const hasTranscript = transcripts.some((t) => v.includes(t));
     if (!hasGene && gene) withContext.push(`${gene} ${v}`);
-    if (!hasTranscript) {
+    if (!hasTranscript && shouldAddTranscriptContext(v)) {
       for (const tx of transcripts.slice(0, 6)) {
         withContext.push(`${tx} ${v}`);
       }
     }
   }
 
-  return Array.from(new Set([...withContext, ...baseVariants]));
+  // Preserve strongest/base terms first — API trims to 50.
+  return Array.from(new Set([...baseVariants, ...withContext]));
 }
 
 export default function Page() {
@@ -213,13 +229,44 @@ export default function Page() {
       if (pubmedRes.status === "fulfilled" && !pubmedRes.value.body.error) {
         setPubmed(pubmedRes.value.body as PubmedResponse);
       } else if (pubmedRes.status === "fulfilled") {
-        setError((e) => e ?? explain("PubMed", pubmedRes.value));
+        if (pubmedRes.value.status === 429) {
+          const status: SourceStatus = pubmedRes.value.body?.status ?? {
+            complete: false,
+            likelyRateLimited: true,
+            likelyPartial: true,
+            message: pubmedRes.value.retryAfter
+              ? `PubMed request rate-limited. Retry in ${pubmedRes.value.retryAfter}s.`
+              : "PubMed request rate-limited. Retry shortly.",
+          };
+          setPubmed({ count: 0, articles: [], status });
+        } else {
+          setError((e) => e ?? explain("PubMed", pubmedRes.value));
+        }
       }
 
       if (clinvarRes.status === "fulfilled" && !clinvarRes.value.body.error) {
         setClinvar(clinvarRes.value.body as ClinvarResponse);
       } else if (clinvarRes.status === "fulfilled") {
-        setError((e) => e ?? explain("ClinVar", clinvarRes.value));
+        if (clinvarRes.value.status === 429) {
+          const status: SourceStatus = clinvarRes.value.body?.status ?? {
+            complete: false,
+            likelyRateLimited: true,
+            likelyPartial: true,
+            message: clinvarRes.value.retryAfter
+              ? `ClinVar request rate-limited. Retry in ${clinvarRes.value.retryAfter}s.`
+              : "ClinVar request rate-limited. Retry shortly.",
+          };
+          setClinvar({
+            count: 0,
+            unfilteredCount: 0,
+            gene,
+            proteinForms,
+            records: [],
+            status,
+          });
+        } else {
+          setError((e) => e ?? explain("ClinVar", clinvarRes.value));
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");

@@ -5,7 +5,12 @@
  * esummary for metadata (title, clinical significance, conditions).
  */
 
-import { EntrezConfig, esummaryBatch, searchPhrasesInDb } from "@/lib/entrez/base";
+import {
+  EntrezConfig,
+  EntrezDiagnostics,
+  esummaryBatchWithDiagnostics,
+  searchPhrasesInDbWithDiagnostics,
+} from "@/lib/entrez/base";
 
 export interface ClinvarRecord {
   uid: string;
@@ -17,6 +22,11 @@ export interface ClinvarRecord {
   lastEvaluated?: string;
   conditions: string[];      // traits from ClinVar
   matchedBy: string[];
+}
+
+export interface ClinvarSearchResult {
+  records: ClinvarRecord[];
+  diagnostics: EntrezDiagnostics;
 }
 
 // ClinVar's esummary schema has shifted over time. We accept both the newer
@@ -44,10 +54,25 @@ export async function searchClinvarForVariants(
   variants: string[],
   cfg: EntrezConfig,
 ): Promise<ClinvarRecord[]> {
-  const matched = await searchPhrasesInDb("clinvar", variants, cfg);
+  const res = await searchClinvarForVariantsDetailed(variants, cfg);
+  return res.records;
+}
+
+export async function searchClinvarForVariantsDetailed(
+  variants: string[],
+  cfg: EntrezConfig,
+): Promise<ClinvarSearchResult> {
+  const phraseRes = await searchPhrasesInDbWithDiagnostics("clinvar", variants, cfg);
+  const matched = phraseRes.matched;
   const allIds = Array.from(matched.keys());
-  if (allIds.length === 0) return [];
-  const summaries = await esummaryBatch<ClinvarDocsum>("clinvar", allIds, cfg);
+  if (allIds.length === 0) {
+    return {
+      records: [],
+      diagnostics: phraseRes.diagnostics,
+    };
+  }
+  const summaryRes = await esummaryBatchWithDiagnostics<ClinvarDocsum>("clinvar", allIds, cfg);
+  const summaries = summaryRes.summaries;
 
   const records: ClinvarRecord[] = [];
   for (const [uid, matchedSet] of matched) {
@@ -80,5 +105,19 @@ export async function searchClinvarForVariants(
     return 5;
   };
   records.sort((a, b) => sigRank(a.clinicalSignificance) - sigRank(b.clinicalSignificance));
-  return records;
+  return {
+    records,
+    diagnostics: {
+      ...phraseRes.diagnostics,
+      summaryBatchCount: summaryRes.diagnostics.summaryBatchCount,
+      failedSummaryBatchCount: summaryRes.diagnostics.failedSummaryBatchCount,
+      rateLimitedSummaryBatchCount: summaryRes.diagnostics.rateLimitedSummaryBatchCount,
+      likelyPartial:
+        phraseRes.diagnostics.failedPhraseCount > 0 ||
+        summaryRes.diagnostics.failedSummaryBatchCount > 0,
+      likelyRateLimited:
+        phraseRes.diagnostics.rateLimitedPhraseCount > 0 ||
+        summaryRes.diagnostics.rateLimitedSummaryBatchCount > 0,
+    },
+  };
 }

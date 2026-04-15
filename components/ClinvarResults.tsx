@@ -18,6 +18,12 @@ interface Props {
     unfilteredCount?: number;
     gene?: string;
     proteinForms?: string[];
+    status?: {
+      complete: boolean;
+      likelyRateLimited: boolean;
+      likelyPartial: boolean;
+      message?: string;
+    };
     records: ClinvarRecord[];
   };
 }
@@ -45,15 +51,24 @@ function sigClass(sig?: string): string {
 
 export function ClinvarResults({ data }: Props) {
   const label = filterLabel(data.gene, data.proteinForms);
+  const statusMessage = data.status?.message;
 
   if (data.count === 0) {
     return (
       <div className="panel">
         <h2>ClinVar records</h2>
-        <p style={{ color: "var(--muted)" }}>
-          No ClinVar records matched any representation
-          {label ? ` for ${label}` : ""}.
-        </p>
+        {statusMessage && <p className="notice notice-warning">{statusMessage}</p>}
+        {data.status?.likelyRateLimited || data.status?.likelyPartial ? (
+          <p className="muted-text">
+            No ClinVar records shown
+            {label ? ` for ${label}` : ""}. This is likely due to temporary limits or upstream errors, not necessarily a true zero-match result.
+          </p>
+        ) : (
+          <p className="muted-text">
+            No ClinVar records matched any representation
+            {label ? ` for ${label}` : ""}.
+          </p>
+        )}
       </div>
     );
   }
@@ -61,6 +76,9 @@ export function ClinvarResults({ data }: Props) {
   return (
     <div className="panel">
       <h2>ClinVar records ({data.count})</h2>
+      {statusMessage && (data.status?.likelyRateLimited || data.status?.likelyPartial) && (
+        <p className="notice notice-warning">{statusMessage}</p>
+      )}
       {data.records.map((r) => (
         <div className="clinvar-row" key={r.uid}>
           <div className="title">
