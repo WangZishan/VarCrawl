@@ -207,13 +207,6 @@ export async function canonicalize(
     notes.push("Ensembl VEP lookup failed or returned no data.");
   }
 
-  // T2T caveat: Ensembl REST doesn't expose VEP on CHM13. Note it and keep going.
-  if (assembly === "T2T-CHM13v2.0") {
-    notes.push(
-      "T2T/CHM13 is not supported by Ensembl VEP REST; returning GRCh38 coordinates. T2T lift-over unavailable.",
-    );
-  }
-
   return {
     input,
     assembly,

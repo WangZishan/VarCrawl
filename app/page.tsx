@@ -91,8 +91,24 @@ function buildProteinForms(expand: ExpandResponse): string[] {
   return Array.from(out);
 }
 
+function collectClientSideVariants(expand: ExpandResponse): string[] {
+  const out = new Set<string>();
+  for (const v of expand.groups.universal) {
+    if (v.text?.trim()) out.add(v.text.trim());
+  }
+  for (const group of expand.groups.perTranscript) {
+    for (const v of group.variants) {
+      if (v.text?.trim()) out.add(v.text.trim());
+    }
+  }
+  for (const v of expand.groups.fallback) {
+    if (v.text?.trim()) out.add(v.text.trim());
+  }
+  return Array.from(out);
+}
+
 function buildPubmedSearchTerms(expand: ExpandResponse): string[] {
-  const baseVariants = expand.variants.map((v) => v.text).filter((v) => v.length > 0);
+  const baseVariants = collectClientSideVariants(expand);
   const gene = expand.canonical.gene ?? expand.classified.gene;
   const escapedGene = gene ? gene.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : undefined;
   const transcripts = Array.from(
@@ -165,8 +181,9 @@ export default function Page() {
       setExpand(d1);
 
       setLoading("searching");
+      const baseVariants = collectClientSideVariants(d1);
       const pubmedVariants = buildPubmedSearchTerms(d1);
-      const clinvarVariants = d1.variants.map((v: VariantString) => v.text);
+      const clinvarVariants = baseVariants;
       const gene = d1.canonical.gene ?? d1.classified.gene;
       const proteinForms = buildProteinForms(d1);
 

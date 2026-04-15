@@ -1,4 +1,4 @@
-export type Assembly = "GRCh38" | "GRCh37" | "T2T-CHM13v2.0";
+export type Assembly = "GRCh38" | "GRCh37";
 
 export type HgvsKind =
   | "hgvsp" // protein, e.g. NP_004324.2:p.Val600Glu or BRAF:p.V600E or just V600E

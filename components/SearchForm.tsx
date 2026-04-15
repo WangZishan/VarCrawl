@@ -45,7 +45,6 @@ export function SearchForm({ onSearch, disabled }: Props) {
         >
           <option value="GRCh38">GRCh38 / hg38</option>
           <option value="GRCh37">GRCh37 / hg19</option>
-          <option value="T2T-CHM13v2.0">T2T-CHM13v2.0</option>
         </select>
         <button type="submit" disabled={disabled || !query.trim()}>
           Search PubMed

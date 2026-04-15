@@ -14,7 +14,7 @@ interface Body {
   assembly?: Assembly;
 }
 
-const VALID_ASSEMBLIES: Assembly[] = ["GRCh38", "GRCh37", "T2T-CHM13v2.0"];
+const VALID_ASSEMBLIES: Assembly[] = ["GRCh38", "GRCh37"];
 
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit(req);
