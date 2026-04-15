@@ -75,4 +75,8 @@ export interface Consequence {
   proteinShort?: string;   // V600E (1-letter)
   proteinLong?: string;    // p.Val600Glu (3-letter)
   consequenceTerms?: string[]; // e.g. ["missense_variant"]
+  // MANE / canonical flags from Ensembl VEP
+  maneSelect?: string;        // RefSeq transcript name if this is MANE Select
+  manePlusClinical?: string;  // RefSeq transcript name if this is MANE Plus Clinical
+  canonical?: boolean;        // Ensembl canonical transcript flag
 }

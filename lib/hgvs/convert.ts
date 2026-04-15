@@ -56,6 +56,9 @@ interface VepTranscriptConsequence {
   consequence_terms?: string[];
   amino_acids?: string; // "V/E"
   protein_start?: number;
+  mane_select?: string;
+  mane_plus_clinical?: string;
+  canonical?: number | boolean;
 }
 
 interface VepResult {
@@ -74,7 +77,7 @@ export async function vepLookupHgvs(
   assembly: Assembly,
 ): Promise<VepResult | null> {
   // VEP wants the whole HGVS string URL-encoded
-  const url = `${vepBase(assembly)}/vep/human/hgvs/${encodeURIComponent(hgvs)}?hgvs=1&refseq=1&xref_refseq=1&protein=1&content-type=application/json`;
+  const url = `${vepBase(assembly)}/vep/human/hgvs/${encodeURIComponent(hgvs)}?hgvs=1&refseq=1&xref_refseq=1&protein=1&mane=1&canonical=1&content-type=application/json`;
   const arr = await fetchJson<VepResult[]>(url);
   if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
   return arr[0];
@@ -117,7 +120,7 @@ export async function ncbiHgvsToVariant(hgvs: string, assembly: Assembly): Promi
 export async function dbsnpRsToVariant(rsid: string, assembly: Assembly): Promise<VepResult | null> {
   // VEP supports rsID lookup via /vep/human/id/{rsid}
   const id = rsid.startsWith("rs") ? rsid : `rs${rsid}`;
-  const url = `${vepBase(assembly)}/vep/human/id/${encodeURIComponent(id)}?hgvs=1&refseq=1&protein=1&content-type=application/json`;
+  const url = `${vepBase(assembly)}/vep/human/id/${encodeURIComponent(id)}?hgvs=1&refseq=1&protein=1&mane=1&canonical=1&content-type=application/json`;
   const arr = await fetchJson<VepResult[]>(url);
   if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
   return arr[0];
@@ -173,6 +176,9 @@ export async function canonicalize(
         hgvsc: tc.hgvsc,
         hgvsp: tc.hgvsp,
         consequenceTerms: tc.consequence_terms,
+        maneSelect: tc.mane_select,
+        manePlusClinical: tc.mane_plus_clinical,
+        canonical: tc.canonical === 1 || tc.canonical === true,
       };
       // Derive short/long protein forms from hgvsp when present
       if (tc.hgvsp) {

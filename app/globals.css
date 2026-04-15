@@ -126,6 +126,33 @@ h1 {
   margin-top: 4px;
   font-size: 12px;
 }
+.mane-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+.mane-badge.mane-select {
+  background: rgba(124, 156, 255, 0.2);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.mane-badge.mane-plus {
+  background: rgba(91, 224, 200, 0.15);
+  color: var(--accent-2);
+  border: 1px solid var(--accent-2);
+}
+.mane-badge.canonical {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--muted);
+}
+
 .consequence-pill {
   background: rgba(91, 224, 200, 0.15);
   color: var(--accent-2);
@@ -203,3 +230,42 @@ h1 {
   color: var(--muted);
   font-style: italic;
 }
+
+.clinvar-row {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.clinvar-row:last-child { border-bottom: 0; }
+.clinvar-row .title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.clinvar-row .meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.clinvar-row .matched {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent-2);
+}
+
+.sig-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sig-badge.sig-path     { background: rgba(255, 107, 107, 0.2); color: #ffb4b4; border: 1px solid #ff6b6b; }
+.sig-badge.sig-lpath    { background: rgba(255, 170, 107, 0.2); color: #ffd4b4; border: 1px solid #ffaa6b; }
+.sig-badge.sig-vus      { background: rgba(255, 220, 107, 0.15); color: #ffe8b4; border: 1px solid #ffdc6b; }
+.sig-badge.sig-lbenign  { background: rgba(91, 224, 200, 0.12); color: #bfece0; border: 1px solid #5be0c8; }
+.sig-badge.sig-benign   { background: rgba(91, 224, 200, 0.18); color: #5be0c8; border: 1px solid #5be0c8; }
+.sig-badge.sig-other    { background: transparent; color: var(--muted); border: 1px solid var(--muted); }

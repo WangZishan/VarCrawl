@@ -1,10 +1,11 @@
 # AskMutation
 
-A serverless web app for searching PubMed by mutation. Paste a mutation in any
-common notation (HGVSp, HGVSc, HGVSg, short forms like `V600E`, `BRAF p.V600E`,
-dbSNP rsIDs) and the app expands it into every string representation the
-mutation might appear under in the literature, then searches PubMed for each
-as an exact phrase.
+A serverless web app for searching PubMed and ClinVar by mutation. Paste a
+mutation in any common notation (HGVSp, HGVSc, HGVSg, short forms like `V600E`,
+`BRAF p.V600E`, dbSNP rsIDs) and the app expands it into every string
+representation the mutation might appear under in the literature, groups them
+by transcript/isoform (with MANE Select / MANE Plus Clinical badges), and
+searches both PubMed (Entrez) and ClinVar for each as an exact phrase.
 
 ## Stack
 
@@ -60,6 +61,12 @@ representation to search on.
 Runs one `esearch` per variant as `"<variant>"[All Fields]`, unions PMIDs,
 batches `esummary` for metadata, returns articles sorted newest-first with
 per-article `matchedBy` attribution.
+
+### `POST /api/clinvar`
+
+Same shape as `/api/pubmed` but queries NCBI `db=clinvar`. Returns ClinVar
+records with germline classification, review status, and conditions, sorted
+by clinical significance (Pathogenic → Likely Pathogenic → VUS → …).
 
 ## Testing
 

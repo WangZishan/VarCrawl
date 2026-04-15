@@ -12,6 +12,10 @@ interface TranscriptGroup {
   hgvsc?: string;
   hgvsp?: string;
   consequenceTerms?: string[];
+  isManeSelect?: boolean;
+  isManePlusClinical?: boolean;
+  isCanonical?: boolean;
+  maneSelectName?: string;
   variants: VariantString[];
 }
 
@@ -61,7 +65,7 @@ function ChipList({ items }: { items: VariantString[] }) {
 }
 
 function GroupHeader({ g }: { g: TranscriptGroup }) {
-  // Headline: "BRAF · NM_004333.6 / NP_004324.2 · missense_variant"
+  // Headline: "BRAF · NM_004333.6 / NP_004324.2"
   const parts: string[] = [];
   if (g.gene) parts.push(g.gene);
   const acc = [g.transcript, g.proteinAccession].filter(Boolean).join(" / ");
@@ -70,7 +74,24 @@ function GroupHeader({ g }: { g: TranscriptGroup }) {
 
   return (
     <div className="group-header">
-      <div className="group-title">{headline || "(transcript)"}</div>
+      <div className="group-title">
+        {headline || "(transcript)"}
+        {g.isManeSelect && (
+          <span className="mane-badge mane-select" title="MANE Select — NCBI/Ensembl agreed-upon default transcript">
+            MANE Select
+          </span>
+        )}
+        {g.isManePlusClinical && (
+          <span className="mane-badge mane-plus" title="MANE Plus Clinical — clinically important additional transcript">
+            MANE Plus Clinical
+          </span>
+        )}
+        {g.isCanonical && !g.isManeSelect && !g.isManePlusClinical && (
+          <span className="mane-badge canonical" title="Ensembl canonical transcript">
+            Canonical
+          </span>
+        )}
+      </div>
       <div className="group-sub">
         {g.consequenceTerms && g.consequenceTerms.length > 0 && (
           <span className="consequence-pill">{g.consequenceTerms.join(", ")}</span>

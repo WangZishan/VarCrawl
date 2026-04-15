@@ -21,16 +21,7 @@ function brafV600E(): CanonicalVariant {
     refAllele: "A",
     altAllele: "T",
     consequences: [
-      {
-        gene: "BRAF",
-        transcript: "NM_004333.6",
-        proteinAccession: "NP_004324.2",
-        hgvsc: "NM_004333.6:c.1799T>A",
-        hgvsp: "NP_004324.2:p.Val600Glu",
-        proteinShort: "V600E",
-        proteinLong: "p.Val600Glu",
-        consequenceTerms: ["missense_variant"],
-      },
+      // Alt transcript first in the input — the enumerator should reorder MANE first
       {
         gene: "BRAF",
         transcript: "NM_001354609.2",
@@ -40,6 +31,18 @@ function brafV600E(): CanonicalVariant {
         proteinShort: "V464E",
         proteinLong: "p.Val464Glu",
         consequenceTerms: ["missense_variant"],
+      },
+      {
+        gene: "BRAF",
+        transcript: "NM_004333.6",
+        proteinAccession: "NP_004324.2",
+        hgvsc: "NM_004333.6:c.1799T>A",
+        hgvsp: "NP_004324.2:p.Val600Glu",
+        proteinShort: "V600E",
+        proteinLong: "p.Val600Glu",
+        consequenceTerms: ["missense_variant"],
+        maneSelect: "NM_004333.6",
+        canonical: true,
       },
     ],
     notes: [],
@@ -121,6 +124,14 @@ describe("enumerateGrouped", () => {
     expect(g.universal).toHaveLength(0);
     expect(g.perTranscript).toHaveLength(0);
     expect(g.fallback.map((v) => v.text)).toContain("weird input");
+  });
+
+  it("puts MANE Select transcript first regardless of input order", () => {
+    const g = enumerateGrouped(brafV600E());
+    expect(g.perTranscript[0].transcript).toBe("NM_004333.6");
+    expect(g.perTranscript[0].isManeSelect).toBe(true);
+    expect(g.perTranscript[0].isCanonical).toBe(true);
+    expect(g.perTranscript[1].isManeSelect).toBeFalsy();
   });
 
   it("flattenVariants(groups) is equivalent to enumerateVariantStrings()", () => {

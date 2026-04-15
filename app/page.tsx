@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SearchForm } from "@/components/SearchForm";
 import { VariantPanel } from "@/components/VariantPanel";
 import { ResultsList } from "@/components/ResultsList";
+import { ClinvarResults } from "@/components/ClinvarResults";
 import type { Assembly } from "@/lib/hgvs/types";
 
 interface VariantString { text: string; label: string }
@@ -15,6 +16,10 @@ interface TranscriptGroup {
   hgvsc?: string;
   hgvsp?: string;
   consequenceTerms?: string[];
+  isManeSelect?: boolean;
+  isManePlusClinical?: boolean;
+  isCanonical?: boolean;
+  maneSelectName?: string;
   variants: VariantString[];
 }
 
@@ -50,9 +55,25 @@ interface PubmedResponse {
   }[];
 }
 
+interface ClinvarResponse {
+  count: number;
+  records: {
+    uid: string;
+    accession?: string;
+    title?: string;
+    gene?: string;
+    clinicalSignificance?: string;
+    reviewStatus?: string;
+    lastEvaluated?: string;
+    conditions: string[];
+    matchedBy: string[];
+  }[];
+}
+
 export default function Page() {
   const [expand, setExpand] = useState<ExpandResponse | null>(null);
   const [pubmed, setPubmed] = useState<PubmedResponse | null>(null);
+  const [clinvar, setClinvar] = useState<ClinvarResponse | null>(null);
   const [loading, setLoading] = useState<"idle" | "expanding" | "searching">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +81,7 @@ export default function Page() {
     setError(null);
     setExpand(null);
     setPubmed(null);
+    setClinvar(null);
     setLoading("expanding");
 
     try {
@@ -77,18 +99,33 @@ export default function Page() {
       setExpand(d1);
 
       setLoading("searching");
-      const r2 = await fetch("/api/pubmed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ variants: d1.variants.map((v: { text: string }) => v.text) }),
-      });
-      const d2 = await r2.json();
-      if (!r2.ok) {
-        setError(d2.error ?? "PubMed search failed.");
-        setLoading("idle");
-        return;
+      const variants = d1.variants.map((v: VariantString) => v.text);
+
+      // Fan out to PubMed and ClinVar in parallel — they are independent.
+      const [pubmedRes, clinvarRes] = await Promise.allSettled([
+        fetch("/api/pubmed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variants }),
+        }).then((r) => r.json()),
+        fetch("/api/clinvar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variants }),
+        }).then((r) => r.json()),
+      ]);
+
+      if (pubmedRes.status === "fulfilled" && !pubmedRes.value.error) {
+        setPubmed(pubmedRes.value);
+      } else if (pubmedRes.status === "fulfilled") {
+        setError((e) => e ?? `PubMed: ${pubmedRes.value.error}`);
       }
-      setPubmed(d2);
+
+      if (clinvarRes.status === "fulfilled" && !clinvarRes.value.error) {
+        setClinvar(clinvarRes.value);
+      } else if (clinvarRes.status === "fulfilled") {
+        setError((e) => e ?? `ClinVar: ${clinvarRes.value.error}`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -101,7 +138,7 @@ export default function Page() {
       <h1>AskMutation</h1>
       <p className="subtitle">
         Paste a mutation in any HGVS-like notation. We expand it into every way it might
-        appear in the literature and search PubMed for each.
+        appear in the literature and search PubMed and ClinVar for each.
       </p>
 
       <SearchForm onSearch={handleSearch} disabled={loading !== "idle"} />
@@ -111,7 +148,8 @@ export default function Page() {
       {loading === "expanding" && <p className="spinner">Expanding mutation representations…</p>}
       {expand && <VariantPanel data={expand} />}
 
-      {loading === "searching" && <p className="spinner">Searching PubMed…</p>}
+      {loading === "searching" && <p className="spinner">Searching PubMed and ClinVar…</p>}
+      {clinvar && <ClinvarResults data={clinvar} />}
       {pubmed && <ResultsList data={pubmed} />}
     </main>
   );

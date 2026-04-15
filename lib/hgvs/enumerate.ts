@@ -22,6 +22,11 @@ export interface TranscriptGroup {
   hgvsc?: string;              // NM_004333.6:c.1799T>A
   hgvsp?: string;              // NP_004324.2:p.Val600Glu
   consequenceTerms?: string[]; // e.g. ["missense_variant"]
+  // MANE / canonical flags from Ensembl VEP
+  isManeSelect?: boolean;      // this transcript is MANE Select
+  isManePlusClinical?: boolean;// this transcript is MANE Plus Clinical
+  isCanonical?: boolean;       // Ensembl canonical transcript
+  maneSelectName?: string;     // RefSeq name of the MANE Select transcript (for display)
   variants: VariantString[];
 }
 
@@ -58,7 +63,11 @@ export function enumerateGrouped(v: CanonicalVariant): VariantGroups {
   if (v.hgvsg) dedupe(universal, v.hgvsg, `HGVSg (${v.assembly})`);
 
   // --- Per-transcript consequences ---
+  // Defer dedupe so MANE-Select groups get first pick of shared strings.
+  const pending: { group: TranscriptGroup; rank: number }[] = [];
   for (const c of v.consequences) {
+    const isManeSelect = !!c.maneSelect;
+    const isManePlusClinical = !!c.manePlusClinical;
     const group: TranscriptGroup = {
       gene: c.gene,
       transcript: c.transcript,
@@ -66,8 +75,20 @@ export function enumerateGrouped(v: CanonicalVariant): VariantGroups {
       hgvsc: c.hgvsc,
       hgvsp: c.hgvsp,
       consequenceTerms: c.consequenceTerms,
+      isManeSelect,
+      isManePlusClinical,
+      isCanonical: c.canonical,
+      maneSelectName: c.maneSelect,
       variants: [],
     };
+    const rank = isManeSelect ? 0 : isManePlusClinical ? 1 : c.canonical ? 2 : 3;
+    pending.push({ group, rank });
+  }
+  // Sort: MANE Select → MANE Plus Clinical → canonical → others
+  pending.sort((a, b) => a.rank - b.rank);
+  for (const { group } of pending) {
+    const c = v.consequences.find((x) => x.transcript === group.transcript);
+    if (!c) continue;
     enumerateConsequence(c, group.variants, dedupe);
     if (group.variants.length > 0) perTranscript.push(group);
   }
