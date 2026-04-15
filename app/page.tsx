@@ -26,7 +26,7 @@ interface TranscriptGroup {
 interface ExpandResponse {
   input: string;
   assembly: Assembly;
-  classified: { kind: string; gene?: string; accession?: string; body: string };
+  classified: { kind: string; gene?: string; accession?: string; body: string; proteinShort?: string; proteinLong?: string };
   canonical: {
     gene?: string;
     rsid?: string;
@@ -57,6 +57,9 @@ interface PubmedResponse {
 
 interface ClinvarResponse {
   count: number;
+  unfilteredCount?: number;
+  gene?: string;
+  proteinForms?: string[];
   records: {
     uid: string;
     accession?: string;
@@ -68,6 +71,24 @@ interface ClinvarResponse {
     conditions: string[];
     matchedBy: string[];
   }[];
+}
+
+function buildProteinForms(expand: ExpandResponse): string[] {
+  const out = new Set<string>();
+  const push = (s?: string) => {
+    if (!s) return;
+    const bare = s.replace(/^p\./i, "");
+    if (!bare) return;
+    out.add(bare);
+    out.add(`p.${bare}`);
+  };
+  push(expand.classified.proteinShort);
+  push(expand.classified.proteinLong);
+  for (const c of expand.canonical.consequences) {
+    push(c.proteinShort);
+    push(c.proteinLong);
+  }
+  return Array.from(out);
 }
 
 export default function Page() {
@@ -100,6 +121,8 @@ export default function Page() {
 
       setLoading("searching");
       const variants = d1.variants.map((v: VariantString) => v.text);
+      const gene = d1.canonical.gene ?? d1.classified.gene;
+      const proteinForms = buildProteinForms(d1);
 
       // Fan out to PubMed and ClinVar in parallel — they are independent.
       const [pubmedRes, clinvarRes] = await Promise.allSettled([
@@ -111,7 +134,7 @@ export default function Page() {
         fetch("/api/clinvar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ variants }),
+          body: JSON.stringify({ variants, gene, proteinForms }),
         }).then((r) => r.json()),
       ]);
 

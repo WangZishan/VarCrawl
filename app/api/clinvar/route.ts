@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchClinvarForVariants } from "@/lib/clinvar/entrez";
+import { filterClinvarRecords } from "@/lib/clinvar/filter";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
 
 export const runtime = "nodejs";
@@ -7,6 +8,14 @@ export const maxDuration = 60;
 
 interface Body {
   variants: string[];
+  /** Gene symbol the user intended (e.g. "KRAS"). Enables strict filtering. */
+  gene?: string;
+  /**
+   * Accepted protein forms (mix of 1-letter and 3-letter, with and without the
+   * `p.` prefix). Any record whose title doesn't contain at least one of these
+   * forms is dropped. Leave empty to skip the protein check.
+   */
+  proteinForms?: string[];
 }
 
 export async function POST(req: NextRequest) {
@@ -26,7 +35,12 @@ export async function POST(req: NextRequest) {
     .filter((v) => v.length > 0)
     .slice(0, 50);
 
-  const cacheKey = `clinvar:${hash(variants)}`;
+  const gene = typeof body.gene === "string" && body.gene.trim() ? body.gene.trim() : undefined;
+  const proteinForms = Array.isArray(body.proteinForms)
+    ? body.proteinForms.filter((f): f is string => typeof f === "string" && f.length > 0)
+    : [];
+
+  const cacheKey = `clinvar:${hash({ variants, gene, proteinForms })}`;
   const cached = await cacheGet<unknown>(cacheKey);
   if (cached) return NextResponse.json(cached);
 
@@ -36,8 +50,15 @@ export async function POST(req: NextRequest) {
     tool: "askmutation",
   };
 
-  const records = await searchClinvarForVariants(variants, cfg);
-  const resp = { count: records.length, records };
+  const all = await searchClinvarForVariants(variants, cfg);
+  const { kept } = filterClinvarRecords(all, { gene, proteinForms });
+  const resp = {
+    count: kept.length,
+    unfilteredCount: all.length,
+    gene,
+    proteinForms,
+    records: kept,
+  };
   await cacheSet(cacheKey, resp, 3600 * 6);
   return NextResponse.json(resp);
 }
