@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchPubmedForVariants } from "@/lib/pubmed/entrez";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
+import { checkRateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,6 +11,14 @@ interface Body {
 }
 
 export async function POST(req: NextRequest) {
+  const rl = await checkRateLimit(req);
+  if (rl && !rl.success) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

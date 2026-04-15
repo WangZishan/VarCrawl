@@ -4,6 +4,7 @@ import { canonicalizeMultiAssembly } from "@/lib/hgvs/convert";
 import { enumerateGrouped, flattenVariants } from "@/lib/hgvs/enumerate";
 import { Assembly } from "@/lib/hgvs/types";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
+import { checkRateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -16,6 +17,14 @@ interface Body {
 const VALID_ASSEMBLIES: Assembly[] = ["GRCh38", "GRCh37", "T2T-CHM13v2.0"];
 
 export async function POST(req: NextRequest) {
+  const rl = await checkRateLimit(req);
+  if (rl && !rl.success) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

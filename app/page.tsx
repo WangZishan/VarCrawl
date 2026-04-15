@@ -113,7 +113,16 @@ export default function Page() {
       });
       const d1 = await r1.json();
       if (!r1.ok) {
-        setError(d1.error ?? "Failed to expand mutation.");
+        if (r1.status === 429) {
+          const retry = r1.headers.get("Retry-After");
+          setError(
+            retry
+              ? `Too many requests — try again in ${retry}s.`
+              : "Too many requests — please slow down and try again shortly.",
+          );
+        } else {
+          setError(d1.error ?? "Failed to expand mutation.");
+        }
         setLoading("idle");
         return;
       }
@@ -130,24 +139,33 @@ export default function Page() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ variants }),
-        }).then((r) => r.json()),
+        }).then(async (r) => ({ status: r.status, retryAfter: r.headers.get("Retry-After"), body: await r.json() })),
         fetch("/api/clinvar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ variants, gene, proteinForms }),
-        }).then((r) => r.json()),
+        }).then(async (r) => ({ status: r.status, retryAfter: r.headers.get("Retry-After"), body: await r.json() })),
       ]);
 
-      if (pubmedRes.status === "fulfilled" && !pubmedRes.value.error) {
-        setPubmed(pubmedRes.value);
+      const explain = (label: string, v: { status: number; retryAfter: string | null; body: { error?: string } }): string => {
+        if (v.status === 429) {
+          return v.retryAfter
+            ? `${label}: too many requests — try again in ${v.retryAfter}s.`
+            : `${label}: too many requests — please slow down.`;
+        }
+        return `${label}: ${v.body.error ?? "error"}`;
+      };
+
+      if (pubmedRes.status === "fulfilled" && !pubmedRes.value.body.error) {
+        setPubmed(pubmedRes.value.body as PubmedResponse);
       } else if (pubmedRes.status === "fulfilled") {
-        setError((e) => e ?? `PubMed: ${pubmedRes.value.error}`);
+        setError((e) => e ?? explain("PubMed", pubmedRes.value));
       }
 
-      if (clinvarRes.status === "fulfilled" && !clinvarRes.value.error) {
-        setClinvar(clinvarRes.value);
+      if (clinvarRes.status === "fulfilled" && !clinvarRes.value.body.error) {
+        setClinvar(clinvarRes.value.body as ClinvarResponse);
       } else if (clinvarRes.status === "fulfilled") {
-        setError((e) => e ?? `ClinVar: ${clinvarRes.value.error}`);
+        setError((e) => e ?? explain("ClinVar", clinvarRes.value));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
