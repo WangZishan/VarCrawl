@@ -62,6 +62,17 @@ export interface CanonicalVariant {
   altAllele?: string;
   // Coding / protein consequences across transcripts
   consequences: Consequence[];
+  // Coordinates in the alternate genome build (opposite of `assembly`), when
+  // resolvable. Used so enumerated variants include HGVSg for both GRCh38 and
+  // GRCh37 regardless of which one the user selected.
+  altAssemblyCoords?: {
+    assembly: Assembly;
+    hgvsg?: string;
+    chrom?: string;
+    genomicPos?: number;
+    refAllele?: string;
+    altAllele?: string;
+  };
   // Free-form notes (e.g., "T2T lift-over unavailable")
   notes: string[];
 }

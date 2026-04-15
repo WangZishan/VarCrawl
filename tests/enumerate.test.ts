@@ -139,4 +139,26 @@ describe("enumerateGrouped", () => {
     const flat2 = flattenVariants(enumerateGrouped(brafV600E())).map((v) => v.text);
     expect(flat2).toEqual(flat);
   });
+
+  it("emits HGVSg for the alternate genome build when altAssemblyCoords is present", () => {
+    const cv = brafV600E();
+    cv.altAssemblyCoords = {
+      assembly: "GRCh37",
+      chrom: "7",
+      genomicPos: 140453136,
+      refAllele: "A",
+      altAllele: "T",
+    };
+    const g = enumerateGrouped(cv);
+    const universalTexts = g.universal.map((v) => v.text);
+    // Primary (GRCh38) still present
+    expect(universalTexts).toContain("chr7:g.140753336A>T");
+    // Alternate (GRCh37) now also present
+    expect(universalTexts).toContain("chr7:g.140453136A>T");
+    expect(universalTexts).toContain("7:g.140453136A>T");
+    // Labels should distinguish the assemblies
+    const labels = g.universal.map((v) => v.label);
+    expect(labels.some((l) => l.includes("GRCh37"))).toBe(true);
+    expect(labels.some((l) => l.includes("GRCh38"))).toBe(true);
+  });
 });

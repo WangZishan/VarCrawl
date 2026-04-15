@@ -229,6 +229,56 @@ export async function canonicalize(
   };
 }
 
+/**
+ * Canonicalize on the primary assembly AND on the alternate build in parallel,
+ * so enumerated variants can include HGVSg for both GRCh38 and GRCh37. The
+ * primary result is returned as-is; alternate-build coordinates are attached
+ * via `altAssemblyCoords`. Transcript consequences are assembly-specific and
+ * are only taken from the primary result.
+ */
+export async function canonicalizeMultiAssembly(
+  input: ClassifiedInput,
+  primaryAssembly: Assembly,
+): Promise<CanonicalVariant> {
+  const altAssembly: Assembly =
+    primaryAssembly === "GRCh37" ? "GRCh38" : "GRCh37";
+  const [primaryRes, altRes] = await Promise.allSettled([
+    canonicalize(input, primaryAssembly),
+    canonicalize(input, altAssembly),
+  ]);
+
+  if (primaryRes.status !== "fulfilled") {
+    // Propagate the primary failure — callers already handle empty canonical
+    // variants via the fallback bucket in enumerateGrouped.
+    throw primaryRes.reason;
+  }
+  const primary = primaryRes.value;
+
+  if (altRes.status === "fulfilled") {
+    const alt = altRes.value;
+    if (alt.chrom || alt.genomicPos || alt.hgvsg) {
+      primary.altAssemblyCoords = {
+        assembly: altAssembly,
+        hgvsg: alt.hgvsg,
+        chrom: alt.chrom,
+        genomicPos: alt.genomicPos,
+        refAllele: alt.refAllele,
+        altAllele: alt.altAllele,
+      };
+    } else {
+      primary.notes.push(
+        `No coordinates resolved on ${altAssembly}; enumerated HGVSg is ${primaryAssembly} only.`,
+      );
+    }
+  } else {
+    primary.notes.push(
+      `Alternate-build lookup (${altAssembly}) failed; enumerated HGVSg is ${primaryAssembly} only.`,
+    );
+  }
+
+  return primary;
+}
+
 function buildVepInput(input: ClassifiedInput): string | null {
   switch (input.kind) {
     case "hgvsc":

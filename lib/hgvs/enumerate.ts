@@ -62,6 +62,17 @@ export function enumerateGrouped(v: CanonicalVariant): VariantGroups {
   }
   if (v.hgvsg) dedupe(universal, v.hgvsg, `HGVSg (${v.assembly})`);
 
+  // Alternate-build HGVSg (so e.g. a GRCh38-resolved query still finds records
+  // annotated against GRCh37). Transcript consequences are build-specific and
+  // stay attached to the primary assembly only.
+  const alt = v.altAssemblyCoords;
+  if (alt?.chrom && alt.genomicPos && alt.refAllele && alt.altAllele) {
+    const g = `g.${alt.genomicPos}${alt.refAllele}>${alt.altAllele}`;
+    dedupe(universal, `chr${alt.chrom}:${g}`, `HGVSg (${alt.assembly}, chr-prefix)`);
+    dedupe(universal, `${alt.chrom}:${g}`, `HGVSg (${alt.assembly}, no prefix)`);
+  }
+  if (alt?.hgvsg) dedupe(universal, alt.hgvsg, `HGVSg (${alt.assembly})`);
+
   // --- Per-transcript consequences ---
   // Defer dedupe so MANE-Select groups get first pick of shared strings.
   const pending: { group: TranscriptGroup; rank: number }[] = [];
