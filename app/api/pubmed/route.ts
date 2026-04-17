@@ -93,9 +93,48 @@ function mergeArticles(pubmed: Article[], europePmc: Article[]): Article[] {
   merged.sort((a, b) => {
     const byMatchCount = b.matchedBy.length - a.matchedBy.length;
     if (byMatchCount !== 0) return byMatchCount;
-    return (b.pubDate || "").localeCompare(a.pubDate || "");
+    return pubDateRank(b.pubDate) - pubDateRank(a.pubDate);
   });
   return merged;
+}
+
+function pubDateRank(pubDate?: string): number {
+  if (!pubDate) return 0;
+  const s = pubDate.trim();
+  if (!s) return 0;
+
+  // PubMed style: "YYYY Mon DD" (or with missing day)
+  const pubmed = s.match(/^(\d{4})(?:\s+([A-Za-z]{3,9})(?:\s+(\d{1,2}))?)?/);
+  if (pubmed) {
+    const year = Number(pubmed[1]);
+    const month = monthFromName(pubmed[2]);
+    const day = pubmed[3] ? Number(pubmed[3]) : 1;
+    return Date.UTC(year, month, day);
+  }
+
+  // Europe PMC often provides ISO dates.
+  const parsed = Date.parse(s);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function monthFromName(mon?: string): number {
+  if (!mon) return 0;
+  const m = mon.slice(0, 3).toLowerCase();
+  switch (m) {
+    case "jan": return 0;
+    case "feb": return 1;
+    case "mar": return 2;
+    case "apr": return 3;
+    case "may": return 4;
+    case "jun": return 5;
+    case "jul": return 6;
+    case "aug": return 7;
+    case "sep": return 8;
+    case "oct": return 9;
+    case "nov": return 10;
+    case "dec": return 11;
+    default: return 0;
+  }
 }
 
 export async function POST(req: NextRequest) {

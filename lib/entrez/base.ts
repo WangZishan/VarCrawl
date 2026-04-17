@@ -46,8 +46,28 @@ export function delayMs(cfg: EntrezConfig): number {
 
 async function timedFetch(url: string): Promise<Response> {
   const maxAttempts = 3;
+  let lastError: unknown;
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { Accept: "application/json" } });
+    } catch (e) {
+      lastError = e;
+      if (attempt < maxAttempts) {
+        await sleep(300 * Math.pow(2, attempt - 1));
+        continue;
+      }
+      return new Response(
+        JSON.stringify({ error: "network_fetch_failed" }),
+        {
+          status: 599,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
     if (res.ok) return res;
     const retriable = res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
     if (!retriable || attempt === maxAttempts) return res;
@@ -55,9 +75,16 @@ async function timedFetch(url: string): Promise<Response> {
     const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
       ? retryAfter * 1000
       : 300 * Math.pow(2, attempt - 1);
-    await new Promise((r) => setTimeout(r, waitMs));
+    await sleep(waitMs);
   }
-  return fetch(url, { headers: { Accept: "application/json" } });
+
+  return new Response(
+    JSON.stringify({ error: "network_fetch_failed", detail: String(lastError ?? "unknown") }),
+    {
+      status: 599,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 }
 
 function isRateLimitStatus(status: number): boolean {

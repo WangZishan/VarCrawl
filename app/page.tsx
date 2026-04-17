@@ -340,7 +340,7 @@ export default function Page() {
     <main>
       <h1>VarCrawl</h1>
       <p className="subtitle">
-        Paste a mutation in any HGVS-like notation. We expand it into every way and search PubMed and ClinVar for you.
+        Paste a mutation in any HGVS-like notation. We expand it into every way and search PubMed, Europe PMC, and ClinVar for you.
       </p>
       <p className="subtitle" style={{ marginTop: -16 }}>
         Powered by the Huang Lab at Mount Sinai (
@@ -358,7 +358,7 @@ export default function Page() {
         <h2>How it works</h2>
         <ol>
           <li>Classify your query, canonicalize it, and generate transcript-aware variant representations.</li>
-          <li>Run exact-phrase Entrez searches per representation, merge PMIDs/ClinVar IDs, and track matched forms.</li>
+          <li>Run exact-phrase searches per representation in PubMed/Europe PMC and ClinVar, merge PMIDs/ClinVar IDs, and track matched forms.</li>
           <li>Rank PubMed by best match (with recency tie-breaker) and flag likely incomplete upstream results.</li>
         </ol>
       </div>
@@ -370,7 +370,7 @@ export default function Page() {
       {loading === "expanding" && <p className="spinner">Expanding mutation representations…</p>}
       {expand && <VariantPanel data={expand} />}
 
-      {loading === "searching" && <p className="spinner">Searching PubMed and ClinVar…</p>}
+      {loading === "searching" && <p className="spinner">Searching PubMed, Europe PMC, and ClinVar…</p>}
       {clinvar && <ClinvarResults data={clinvar} />}
       {pubmed && <ResultsList data={pubmed} />}
     </main>

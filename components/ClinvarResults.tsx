@@ -49,6 +49,48 @@ function sigClass(sig?: string): string {
   return "sig-other";
 }
 
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function normalizeConditionsForDisplay(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (name: string) => {
+    const cleaned = name.replace(/\s+/g, " ").trim();
+    if (!cleaned) return;
+    if (seen.has(cleaned)) return;
+    seen.add(cleaned);
+    out.push(cleaned);
+  };
+
+  for (const raw of values) {
+    const decoded = decodeXmlEntities(raw ?? "").trim();
+    if (!decoded) continue;
+
+    const embedded = Array.from(
+      decoded.matchAll(/<ClassifiedCondition\b[^>]*>([\s\S]*?)<\/ClassifiedCondition>/g),
+      (m) => m[1],
+    );
+    if (embedded.length > 0) {
+      for (const name of embedded) push(name);
+      continue;
+    }
+
+    const noTags = decoded.replace(/<[^>]+>/g, " ").trim();
+    if (!noTags) continue;
+    for (const part of noTags.split(/\s*;\s*/)) push(part);
+  }
+
+  return out;
+}
+
 export function ClinvarResults({ data }: Props) {
   const label = filterLabel(data.gene, data.proteinForms);
   const statusMessage = data.status?.message;
@@ -79,36 +121,43 @@ export function ClinvarResults({ data }: Props) {
       {statusMessage && (data.status?.likelyRateLimited || data.status?.likelyPartial) && (
         <p className="notice notice-warning">{statusMessage}</p>
       )}
-      {data.records.map((r) => (
-        <div className="clinvar-row" key={r.uid}>
-          <div className="title">
-            <a
-              href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${r.uid}/`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {r.title || r.accession || `ClinVar UID ${r.uid}`}
-            </a>
-            {r.clinicalSignificance && (
-              <span className={`sig-badge ${sigClass(r.clinicalSignificance)}`}>
-                {r.clinicalSignificance}
-              </span>
-            )}
-          </div>
-          <div className="meta">
-            {r.accession && <span>{r.accession}</span>}
-            {r.gene && <span> · {r.gene}</span>}
-            {r.reviewStatus && <span> · {r.reviewStatus}</span>}
-            {r.lastEvaluated && <span> · evaluated {r.lastEvaluated}</span>}
-          </div>
-          {r.conditions.length > 0 && (
-            <div className="meta">Conditions: {r.conditions.slice(0, 6).join("; ")}
-              {r.conditions.length > 6 ? `; +${r.conditions.length - 6} more` : ""}
+      {data.records.map((r) => {
+        const displayConditions = normalizeConditionsForDisplay(r.conditions);
+        return (
+          <div className="clinvar-row" key={r.uid}>
+            <div className="title">
+              <a
+                href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${r.uid}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {r.title || r.accession || `ClinVar UID ${r.uid}`}
+              </a>
             </div>
-          )}
-          <div className="matched">matched on: {r.matchedBy.join(", ")}</div>
-        </div>
-      ))}
+            {r.clinicalSignificance && (
+              <div className="meta">
+                Clinical significance:{" "}
+                <span className={`sig-badge ${sigClass(r.clinicalSignificance)}`}>
+                  {r.clinicalSignificance}
+                </span>
+              </div>
+            )}
+            <div className="meta">
+              {r.accession && <span>{r.accession}</span>}
+              {r.gene && <span> · {r.gene}</span>}
+              {r.reviewStatus && <span> · {r.reviewStatus}</span>}
+              {r.lastEvaluated && <span> · evaluated {r.lastEvaluated}</span>}
+            </div>
+            {displayConditions.length > 0 && (
+              <div className="meta">
+                Conditions: {displayConditions.slice(0, 6).join("; ")}
+                {displayConditions.length > 6 ? `; +${displayConditions.length - 6} more` : ""}
+              </div>
+            )}
+            <div className="matched">Matched on: {r.matchedBy.join(", ")}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }

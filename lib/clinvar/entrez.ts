@@ -84,9 +84,11 @@ export async function searchClinvarForVariantsDetailed(
     for (const [uid, matchedSet] of matched) {
       const s = summaries.get(uid);
       const clin = s?.germline_classification ?? s?.clinical_significance;
-      const conditions = (s?.trait_set ?? s?.traits ?? [])
-        .map((t) => t.trait_name)
-        .filter((t): t is string => !!t);
+      const conditions = normalizeConditionStrings(
+        (s?.trait_set ?? s?.traits ?? [])
+          .map((t) => t.trait_name)
+          .filter((t): t is string => !!t),
+      );
       records.push({
         uid,
         accession: s?.accession,
@@ -295,7 +297,7 @@ function parseVcvXml(
       clinicalSignificance,
       reviewStatus,
       lastEvaluated,
-      conditions,
+      conditions: normalizeConditionStrings(conditions),
       matchedBy: matchedVariant ? [matchedVariant] : [],
     });
   }
@@ -326,4 +328,40 @@ function decodeXmlEntities(s: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
       String.fromCharCode(parseInt(h, 16)),
     );
+}
+
+function normalizeConditionStrings(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (name: string) => {
+    const cleaned = name.replace(/\s+/g, " ").trim();
+    if (!cleaned) return;
+    if (seen.has(cleaned)) return;
+    seen.add(cleaned);
+    out.push(cleaned);
+  };
+
+  for (const raw of values) {
+    const decoded = decodeXmlEntities(raw ?? "").trim();
+    if (!decoded) continue;
+
+    // If a condition contains serialized XML, extract just text inside
+    // <ClassifiedCondition>...</ClassifiedCondition> tags.
+    const embedded = Array.from(
+      decoded.matchAll(/<ClassifiedCondition\b[^>]*>([\s\S]*?)<\/ClassifiedCondition>/g),
+      (m) => m[1],
+    );
+    if (embedded.length > 0) {
+      for (const name of embedded) push(name);
+      continue;
+    }
+
+    // Otherwise strip any tags and split semicolon-delimited lists.
+    const noTags = decoded.replace(/<[^>]+>/g, " ").trim();
+    if (!noTags) continue;
+    for (const part of noTags.split(/\s*;\s*/)) push(part);
+  }
+
+  return out;
 }
