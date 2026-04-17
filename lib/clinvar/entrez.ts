@@ -1,13 +1,19 @@
 /**
  * ClinVar search via NCBI Entrez (db=clinvar).
  *
- * One esearch per variant string as an exact phrase, then a batched
+ * Primary path: one esearch per variant string as an exact phrase, then a batched
  * esummary for metadata (title, clinical significance, conditions).
+ *
+ * Supplemental path: for rsID variants, elink (dbSNP → ClinVar) + efetch with
+ * rettype=vcv gives us the authoritative ClinVar variation records that esearch
+ * often fails to surface through text indexing.
  */
 
 import {
   EntrezConfig,
   EntrezDiagnostics,
+  baseParams,
+  delayMs,
   esummaryBatchWithDiagnostics,
   searchPhrasesInDbWithDiagnostics,
 } from "@/lib/entrez/base";
@@ -62,39 +68,63 @@ export async function searchClinvarForVariantsDetailed(
   variants: string[],
   cfg: EntrezConfig,
 ): Promise<ClinvarSearchResult> {
+  /* ── 1. Existing esearch path (unchanged) ── */
   const phraseRes = await searchPhrasesInDbWithDiagnostics("clinvar", variants, cfg);
   const matched = phraseRes.matched;
   const allIds = Array.from(matched.keys());
-  if (allIds.length === 0) {
-    return {
-      records: [],
-      diagnostics: phraseRes.diagnostics,
-    };
-  }
-  const summaryRes = await esummaryBatchWithDiagnostics<ClinvarDocsum>("clinvar", allIds, cfg);
-  const summaries = summaryRes.summaries;
 
-  const records: ClinvarRecord[] = [];
-  for (const [uid, matchedSet] of matched) {
-    const s = summaries.get(uid);
-    const clin = s?.germline_classification ?? s?.clinical_significance;
-    const conditions = (s?.trait_set ?? s?.traits ?? [])
-      .map((t) => t.trait_name)
-      .filter((t): t is string => !!t);
-    records.push({
-      uid,
-      accession: s?.accession,
-      title: s?.title,
-      gene: s?.genes?.[0]?.symbol,
-      clinicalSignificance: clin?.description,
-      reviewStatus: clin?.review_status,
-      lastEvaluated: clin?.last_evaluated,
-      conditions,
-      matchedBy: Array.from(matchedSet),
-    });
+  let records: ClinvarRecord[] = [];
+  let summaryDiag = { summaryBatchCount: 0, failedSummaryBatchCount: 0, rateLimitedSummaryBatchCount: 0 };
+
+  if (allIds.length > 0) {
+    const summaryRes = await esummaryBatchWithDiagnostics<ClinvarDocsum>("clinvar", allIds, cfg);
+    summaryDiag = summaryRes.diagnostics;
+    const summaries = summaryRes.summaries;
+
+    for (const [uid, matchedSet] of matched) {
+      const s = summaries.get(uid);
+      const clin = s?.germline_classification ?? s?.clinical_significance;
+      const conditions = (s?.trait_set ?? s?.traits ?? [])
+        .map((t) => t.trait_name)
+        .filter((t): t is string => !!t);
+      records.push({
+        uid,
+        accession: s?.accession,
+        title: s?.title,
+        gene: s?.genes?.[0]?.symbol,
+        clinicalSignificance: clin?.description,
+        reviewStatus: clin?.review_status,
+        lastEvaluated: clin?.last_evaluated,
+        conditions,
+        matchedBy: Array.from(matchedSet),
+      });
+    }
   }
 
-  // Sort: pathogenic > likely path > VUS > likely benign > benign > others
+  /* ── 2. Supplemental elink path for rsID variants ── */
+  const rsIds: { variant: string; rsNum: number }[] = [];
+  for (const v of variants) {
+    const m = v.match(/^rs(\d+)$/i);
+    if (m) rsIds.push({ variant: v, rsNum: Number(m[1]) });
+  }
+  if (rsIds.length > 0) {
+    try {
+      const supplemental = await elinkClinvarRecords(rsIds, cfg);
+      const existingAccessions = new Set(
+        records.map((r) => r.accession).filter(Boolean),
+      );
+      for (const rec of supplemental) {
+        if (rec.accession && !existingAccessions.has(rec.accession)) {
+          records.push(rec);
+          existingAccessions.add(rec.accession);
+        }
+      }
+    } catch {
+      // Supplemental lookup is best-effort; swallow errors
+    }
+  }
+
+  /* ── 3. Sort by clinical significance ── */
   const sigRank = (s?: string): number => {
     const x = (s ?? "").toLowerCase();
     if (x.includes("pathogenic") && !x.includes("likely") && !x.includes("benign")) return 0;
@@ -109,15 +139,191 @@ export async function searchClinvarForVariantsDetailed(
     records,
     diagnostics: {
       ...phraseRes.diagnostics,
-      summaryBatchCount: summaryRes.diagnostics.summaryBatchCount,
-      failedSummaryBatchCount: summaryRes.diagnostics.failedSummaryBatchCount,
-      rateLimitedSummaryBatchCount: summaryRes.diagnostics.rateLimitedSummaryBatchCount,
+      summaryBatchCount: summaryDiag.summaryBatchCount,
+      failedSummaryBatchCount: summaryDiag.failedSummaryBatchCount,
+      rateLimitedSummaryBatchCount: summaryDiag.rateLimitedSummaryBatchCount,
       likelyPartial:
         phraseRes.diagnostics.failedPhraseCount > 0 ||
-        summaryRes.diagnostics.failedSummaryBatchCount > 0,
+        summaryDiag.failedSummaryBatchCount > 0,
       likelyRateLimited:
         phraseRes.diagnostics.rateLimitedPhraseCount > 0 ||
-        summaryRes.diagnostics.rateLimitedSummaryBatchCount > 0,
+        summaryDiag.rateLimitedSummaryBatchCount > 0,
     },
   };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Supplemental ClinVar lookup via dbSNP elink + VCV efetch
+ *
+ * ClinVar's esearch text index often fails to surface records for well-known
+ * variants (e.g. BRAF V600E / VCV000013961). The elink path from dbSNP is
+ * more reliable: elink(dbfrom=snp → db=clinvar) returns variation IDs, and
+ * efetch(rettype=vcv, is_variationid) returns full VCV XML with metadata.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
+
+async function elinkClinvarRecords(
+  rsIds: { variant: string; rsNum: number }[],
+  cfg: EntrezConfig,
+): Promise<ClinvarRecord[]> {
+  const d = delayMs(cfg);
+
+  // 1. elink: dbSNP → ClinVar (one call per rsID to track matchedBy)
+  const varIdToRsVariant = new Map<number, string>();
+  for (const { variant, rsNum } of rsIds) {
+    const params = baseParams(cfg);
+    params.set("dbfrom", "snp");
+    params.set("db", "clinvar");
+    params.set("id", String(rsNum));
+    params.set("retmode", "xml");
+    const url = `${EUTILS}/elink.fcgi?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) continue;
+    const xml = await res.text();
+    // Extract <Id> elements inside <LinkSetDb> (they are variation IDs)
+    const lsdb = xml.match(/<LinkSetDb>[\s\S]*?<\/LinkSetDb>/g);
+    if (lsdb) {
+      for (const block of lsdb) {
+        for (const m of block.matchAll(/<Id>(\d+)<\/Id>/g)) {
+          varIdToRsVariant.set(Number(m[1]), variant);
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, d));
+  }
+
+  if (varIdToRsVariant.size === 0) return [];
+
+  // 2. efetch: get VCV XML for all variation IDs in one call
+  const variationIds = Array.from(varIdToRsVariant.keys());
+  const params = baseParams(cfg);
+  params.set("db", "clinvar");
+  params.set("rettype", "vcv");
+  params.set("id", variationIds.join(","));
+  // is_variationid is a flag (no value) telling ClinVar the IDs are variation IDs
+  const url = `${EUTILS}/efetch.fcgi?${params.toString()}&is_variationid`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const xml = await res.text();
+
+  // 3. Parse each <VariationArchive> element
+  return parseVcvXml(xml, varIdToRsVariant);
+}
+
+/** Parse ClinVar VCV XML into ClinvarRecord objects. */
+function parseVcvXml(
+  xml: string,
+  varIdToRsVariant: Map<number, string>,
+): ClinvarRecord[] {
+  const records: ClinvarRecord[] = [];
+  // Each <VariationArchive ...>...</VariationArchive> is one record
+  const archiveBlocks = xml.match(
+    /<VariationArchive\b[^>]*>[\s\S]*?<\/VariationArchive>/g,
+  );
+  if (!archiveBlocks) return records;
+
+  for (const block of archiveBlocks) {
+    const variationId = attr(block, "VariationArchive", "VariationID");
+    const accession = attr(block, "VariationArchive", "Accession");
+    const title = decodeXmlEntities(
+      attr(block, "VariationArchive", "VariationName") ?? "",
+    ) || undefined;
+
+    // Gene symbol from <Gene Symbol="...">
+    const gene = attr(block, "Gene", "Symbol");
+
+    // Aggregated classification lives in <Classifications> (not <RCVClassifications>).
+    // We strip all <RCVClassifications> blocks first so our regex hits the
+    // top-level <Classifications> section.
+    const stripped = block.replace(
+      /<RCVClassifications>[\s\S]*?<\/RCVClassifications>/g,
+      "",
+    );
+    const clsBlock =
+      stripped.match(/<GermlineClassification\b[^>]*>[\s\S]*?<\/GermlineClassification>/) ??
+      stripped.match(/<ClinicalSignificance\b[^>]*>[\s\S]*?<\/ClinicalSignificance>/);
+
+    let clinicalSignificance: string | undefined;
+    let reviewStatus: string | undefined;
+    let lastEvaluated: string | undefined;
+    if (clsBlock) {
+      const cb = clsBlock[0];
+      // ReviewStatus and Description are CHILD ELEMENTS, not attributes
+      const rsM = cb.match(/<ReviewStatus[^>]*>([\s\S]*?)<\/ReviewStatus>/);
+      if (rsM) reviewStatus = decodeXmlEntities(rsM[1].trim());
+      const descM = cb.match(/<Description[^>]*>([\s\S]*?)<\/Description>/);
+      if (descM) clinicalSignificance = decodeXmlEntities(descM[1].trim());
+      // DateLastEvaluated is an attribute on <GermlineClassification> or <Description>
+      lastEvaluated =
+        attr(cb, "GermlineClassification", "DateLastEvaluated") ??
+        attr(cb, "ClinicalSignificance", "DateLastEvaluated") ??
+        attr(cb, "Description", "DateLastEvaluated");
+    }
+
+    // Conditions: try TraitName attr, ClassifiedCondition elements, then ElementValue
+    const conditions: string[] = [];
+    for (const tm of block.matchAll(/TraitName="([^"]+)"/g)) {
+      const name = decodeXmlEntities(tm[1].trim());
+      if (name && !conditions.includes(name)) conditions.push(name);
+    }
+    if (conditions.length === 0) {
+      for (const cc of block.matchAll(
+        /<ClassifiedCondition[^>]*>([\s\S]*?)<\/ClassifiedCondition>/g,
+      )) {
+        const name = decodeXmlEntities(cc[1].trim());
+        if (name && !conditions.includes(name)) conditions.push(name);
+      }
+    }
+    if (conditions.length === 0) {
+      for (const ev of block.matchAll(
+        /<ElementValue\s+Type="Preferred"[^>]*>([\s\S]*?)<\/ElementValue>/g,
+      )) {
+        const name = decodeXmlEntities(ev[1].trim());
+        if (name && !conditions.includes(name)) conditions.push(name);
+      }
+    }
+
+    const varId = variationId ? Number(variationId) : undefined;
+    const matchedVariant = varId ? varIdToRsVariant.get(varId) : undefined;
+
+    records.push({
+      uid: variationId ?? "",
+      accession,
+      title,
+      gene,
+      clinicalSignificance,
+      reviewStatus,
+      lastEvaluated,
+      conditions,
+      matchedBy: matchedVariant ? [matchedVariant] : [],
+    });
+  }
+
+  return records;
+}
+
+/** Extract an XML attribute value from the first occurrence of a tag. */
+function attr(
+  xml: string,
+  tag: string,
+  attribute: string,
+): string | undefined {
+  const re = new RegExp(`<${tag}\\b[^>]*?\\b${attribute}="([^"]*)"`, "s");
+  const m = xml.match(re);
+  return m ? decodeXmlEntities(m[1]) : undefined;
+}
+
+/** Decode common XML character entities. */
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
+      String.fromCharCode(parseInt(h, 16)),
+    );
 }

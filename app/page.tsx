@@ -116,8 +116,38 @@ function collectClientSideVariants(expand: ExpandResponse): string[] {
   return Array.from(out);
 }
 
+function rankPubmedTerm(term: string, ctx: { rawInput: string; gene?: string; transcripts: string[] }): number {
+  const t = term.trim();
+  const lower = t.toLowerCase();
+  const raw = ctx.rawInput.trim().toLowerCase();
+
+  if (lower === raw) return 0;
+  if (/^rs\d+$/i.test(t)) return 1;
+  if (/^(?:chr)?(?:[0-9]{1,2}|x|y|m|mt):g\./i.test(t)) return 1;
+  if (/^[A-Z]{2,4}_[0-9]+(?:\.[0-9]+)?:g\./i.test(t)) return 1;
+
+  if (ctx.gene) {
+    const escapedGene = ctx.gene.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${escapedGene}\\b`, "i").test(t)) return 2;
+  }
+
+  if (ctx.transcripts.some((tx) => t.includes(tx))) return 3;
+  return 4;
+}
+
+function isProteinOrCdnaOnly(kind: string): boolean {
+  return kind === "short" || kind === "hgvsp" || kind === "hgvsc";
+}
+
+function hasGeneSymbol(term: string, gene?: string): boolean {
+  if (!gene) return false;
+  const escaped = gene.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(term);
+}
+
 function buildPubmedSearchTerms(expand: ExpandResponse): string[] {
   const baseVariants = collectClientSideVariants(expand);
+  const rawInput = expand.input;
   const gene = expand.canonical.gene ?? expand.classified.gene;
   const escapedGene = gene ? gene.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : undefined;
   const transcripts = Array.from(
@@ -132,6 +162,7 @@ function buildPubmedSearchTerms(expand: ExpandResponse): string[] {
     expand.classified.kind === "hgvsg" &&
     !gene &&
     transcripts.length === 0;
+  const requireGeneContext = isProteinOrCdnaOnly(expand.classified.kind);
 
   if (coordinateOnly) {
     return Array.from(new Set(baseVariants));
@@ -155,8 +186,22 @@ function buildPubmedSearchTerms(expand: ExpandResponse): string[] {
     }
   }
 
-  // Preserve strongest/base terms first — API trims to 50.
-  return Array.from(new Set([...baseVariants, ...withContext]));
+  // Keep strongest terms first — API trims to 50.
+  // Priority: exact user input > direct genomic/rsID > gene-qualified > transcript-qualified > others.
+  const merged = Array.from(new Set([...baseVariants, ...withContext]));
+  const ranked = merged.sort((a, b) => {
+    const ra = rankPubmedTerm(a, { rawInput, gene, transcripts });
+    const rb = rankPubmedTerm(b, { rawInput, gene, transcripts });
+    if (ra !== rb) return ra - rb;
+    return a.length - b.length;
+  });
+
+  if (requireGeneContext && gene) {
+    const geneOnly = ranked.filter((term) => hasGeneSymbol(term, gene));
+    if (geneOnly.length > 0) return geneOnly;
+  }
+
+  return ranked;
 }
 
 export default function Page() {
@@ -202,14 +247,32 @@ export default function Page() {
       const clinvarVariants = baseVariants;
       const gene = d1.canonical.gene ?? d1.classified.gene;
       const proteinForms = buildProteinForms(d1);
+      const requiresGeneForLiterature = isProteinOrCdnaOnly(d1.classified.kind);
+      const skipLiteratureSearch = requiresGeneForLiterature && !gene;
 
       // Fan out to PubMed and ClinVar in parallel — they are independent.
       const [pubmedRes, clinvarRes] = await Promise.allSettled([
-        fetch("/api/pubmed", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ variants: pubmedVariants }),
-        }).then(async (r) => ({ status: r.status, retryAfter: r.headers.get("Retry-After"), body: await r.json() })),
+        skipLiteratureSearch
+          ? Promise.resolve({
+              status: 200,
+              retryAfter: null,
+              body: {
+                count: 0,
+                articles: [],
+                status: {
+                  complete: false,
+                  likelyRateLimited: false,
+                  likelyPartial: false,
+                  message:
+                    "PubMed/PMC search skipped: amino-acid or cDNA-only queries require a gene symbol (e.g. TP53 R175H, BRCA1 c.68_69delAG).",
+                },
+              },
+            })
+          : fetch("/api/pubmed", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ variants: pubmedVariants }),
+            }).then(async (r) => ({ status: r.status, retryAfter: r.headers.get("Retry-After"), body: await r.json() })),
         fetch("/api/clinvar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

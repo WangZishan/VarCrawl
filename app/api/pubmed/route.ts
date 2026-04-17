@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchPubmedForVariantsDetailed } from "@/lib/pubmed/entrez";
+import { searchEuropePmcForVariantsDetailed } from "@/lib/pubmed/europepmc";
 import { cacheGet, cacheSet, hash } from "@/lib/cache";
 import { checkRateLimit } from "@/lib/ratelimit";
 
@@ -8,6 +9,17 @@ export const maxDuration = 60;
 
 interface Body {
   variants: string[];
+}
+
+interface Article {
+  pmid: string;
+  title: string;
+  authors: string[];
+  journal: string;
+  pubDate: string;
+  doi?: string;
+  matchedBy: string[];
+  sources?: string[];
 }
 
 interface SourceStatus {
@@ -41,6 +53,49 @@ function buildStatusFromDiagnostics(diag: {
     likelyRateLimited: false,
     likelyPartial: false,
   };
+}
+
+function mergeArticles(pubmed: Article[], europePmc: Article[]): Article[] {
+  const byPmid = new Map<string, Article>();
+
+  for (const a of pubmed) {
+    byPmid.set(a.pmid, {
+      ...a,
+      sources: Array.from(new Set([...(a.sources ?? []), "PubMed"])),
+    });
+  }
+
+  for (const ep of europePmc) {
+    const existing = byPmid.get(ep.pmid);
+    if (!existing) {
+      byPmid.set(ep.pmid, {
+        ...ep,
+        sources: Array.from(new Set([...(ep.sources ?? []), "Europe PMC"])),
+      });
+      continue;
+    }
+
+    const matchedBy = Array.from(new Set([...(existing.matchedBy ?? []), ...(ep.matchedBy ?? [])]));
+    const sources = Array.from(new Set([...(existing.sources ?? []), ...(ep.sources ?? []), "Europe PMC"]));
+    byPmid.set(ep.pmid, {
+      ...existing,
+      title: existing.title || ep.title,
+      authors: existing.authors.length > 0 ? existing.authors : ep.authors,
+      journal: existing.journal || ep.journal,
+      pubDate: existing.pubDate || ep.pubDate,
+      doi: existing.doi || ep.doi,
+      matchedBy,
+      sources,
+    });
+  }
+
+  const merged = Array.from(byPmid.values());
+  merged.sort((a, b) => {
+    const byMatchCount = b.matchedBy.length - a.matchedBy.length;
+    if (byMatchCount !== 0) return byMatchCount;
+    return (b.pubDate || "").localeCompare(a.pubDate || "");
+  });
+  return merged;
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +145,17 @@ export async function POST(req: NextRequest) {
     tool: "varcrawl",
   };
 
-  const { articles, diagnostics } = await searchPubmedForVariantsDetailed(variants, cfg);
+  const [pubmedRes, europePmcRes] = await Promise.all([
+    searchPubmedForVariantsDetailed(variants, cfg),
+    searchEuropePmcForVariantsDetailed(variants),
+  ]);
+
+  const diagnostics = {
+    likelyPartial: pubmedRes.diagnostics.likelyPartial || europePmcRes.diagnostics.likelyPartial,
+    likelyRateLimited: pubmedRes.diagnostics.likelyRateLimited || europePmcRes.diagnostics.likelyRateLimited,
+  };
+
+  const articles = mergeArticles(pubmedRes.articles, europePmcRes.articles as Article[]);
   const resp = {
     count: articles.length,
     articles,

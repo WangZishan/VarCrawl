@@ -23,15 +23,37 @@ interface Props {
   };
 }
 
+function rankPrimaryMatchedTerm(term: string): number {
+  if (/^rs\d+$/i.test(term)) return 0;
+  if (/^(?:chr)?(?:[0-9]{1,2}|x|y|m|mt):g\./i.test(term)) return 0;
+  if (/^[A-Z]{2,4}_[0-9]+(?:\.[0-9]+)?:g\./i.test(term)) return 0;
+
+  if (/^[A-Z][A-Z0-9-]{1,15}[\s:]/.test(term)) return 1;
+  if (/^(?:NM_|NP_|ENST|ENSP|NC_|NG_|LRG_)/i.test(term)) return 2;
+  if (/^(?:c\.|p\.|g\.)/i.test(term)) return 3;
+  return 4;
+}
+
+function pickPrimaryMatchedTerm(terms: string[]): string {
+  if (terms.length === 0) return "(unlabeled)";
+  const ordered = [...terms].sort((a, b) => {
+    const ra = rankPrimaryMatchedTerm(a);
+    const rb = rankPrimaryMatchedTerm(b);
+    if (ra !== rb) return ra - rb;
+    return a.length - b.length;
+  });
+  return ordered[0];
+}
+
 export function ResultsList({ data }: Props) {
   const statusMessage = data.status?.message;
-  const showRateLimitNotice = Boolean(statusMessage && !data.status?.complete && data.status?.likelyRateLimited);
+  const showStatusNotice = Boolean(statusMessage && !data.status?.complete);
 
   if (data.count === 0) {
     return (
       <div className="panel">
         <h2>PubMed results</h2>
-        {showRateLimitNotice && <p className="notice notice-warning">{statusMessage}</p>}
+        {showStatusNotice && <p className="notice notice-warning">{statusMessage}</p>}
         {data.status?.likelyRateLimited || data.status?.likelyPartial ? (
           <p className="muted-text">No articles shown. This is likely due to temporary limits or upstream errors, not necessarily a true zero-match result.</p>
         ) : (
@@ -43,7 +65,7 @@ export function ResultsList({ data }: Props) {
 
   const grouped = new Map<string, Article[]>();
   for (const article of data.articles) {
-    const primary = article.matchedBy[0] ?? "(unlabeled)";
+    const primary = pickPrimaryMatchedTerm(article.matchedBy ?? []);
     if (!grouped.has(primary)) grouped.set(primary, []);
     grouped.get(primary)!.push(article);
   }
@@ -51,7 +73,7 @@ export function ResultsList({ data }: Props) {
   return (
     <div className="panel">
       <h2>PubMed results ({data.count})</h2>
-      {showRateLimitNotice && (
+      {showStatusNotice && (
         <p className="notice notice-warning">{statusMessage}</p>
       )}
       <div className="pubmed-nav" aria-label="Jump to PubMed section">
