@@ -95,15 +95,38 @@ export async function searchClinvarForVariantsDetailed(
    * returns records such as VCV000013961. Best-effort — failures are ignored.
    */
   if (opts?.gene && opts.proteinForms && opts.proteinForms.length > 0) {
+    const tag = `${opts.gene} ${shortestProteinForm(opts.proteinForms)}`;
+    let primaryIdCount = 0;
     const term = buildGeneProteinQuery(opts.gene, opts.proteinForms);
     if (term) {
       await new Promise((r) => setTimeout(r, delayMs(cfg)));
       const res = await esearchTermWithStatus("clinvar", term, cfg);
       if (res.ok) {
-        const tag = `${opts.gene} ${shortestProteinForm(opts.proteinForms)}`;
+        primaryIdCount = res.ids.length;
         for (const id of res.ids) {
           if (!matched.has(id)) matched.set(id, new Set());
           matched.get(id)!.add(tag);
+        }
+      }
+    }
+
+    /* ── 1c. Per-form fallback queries ──
+     * NCBI's esearch parser can silently drop the big mixed-quote OR query
+     * above (e.g. when `"p.Val600Glu"` tokenizes oddly). Run simple
+     * `GENE[gene] AND FORM` terms one-by-one as a safety net. 3-letter forms
+     * run first because ClinVar's indexed titles carry them. Short-circuit
+     * the moment any term returns at least one hit.
+     */
+    if (primaryIdCount === 0) {
+      for (const fallback of buildGeneProteinQueries(opts.gene, opts.proteinForms)) {
+        await new Promise((r) => setTimeout(r, delayMs(cfg)));
+        const res = await esearchTermWithStatus("clinvar", fallback, cfg);
+        if (res.ok && res.ids.length > 0) {
+          for (const id of res.ids) {
+            if (!matched.has(id)) matched.set(id, new Set());
+            matched.get(id)!.add(tag);
+          }
+          break;
         }
       }
     }
@@ -394,6 +417,43 @@ export function buildGeneProteinQuery(gene: string, proteinForms: string[]): str
   }
   if (terms.length === 0) return "";
   return `${g}[gene] AND (${terms.join(" OR ")})`;
+}
+
+/**
+ * Build a prioritized list of simple structured ClinVar queries as a fallback
+ * for when the big `AND (form OR form OR ...)` query fails to resolve. Each
+ * term is a single `GENE[gene] AND TOKEN` pair — no quotes, no dots, no OR —
+ * which NCBI's esearch parser handles reliably. 3-letter forms are preferred
+ * because ClinVar's indexed record titles carry them (e.g. p.Val600Glu).
+ *
+ * Capped at 4 terms to keep the Entrez call count bounded.
+ */
+export function buildGeneProteinQueries(gene: string, proteinForms: string[]): string[] {
+  const g = gene.trim();
+  if (!g) return [];
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const raw of proteinForms) {
+    if (!raw) continue;
+    const bare = raw.trim().replace(/^p\./i, "");
+    if (!bare) continue;
+    // Skip anything that would need quoting in the NCBI term — we want the
+    // simplest possible token so the parser can't misinterpret it.
+    if (!/^[A-Za-z0-9]+$/.test(bare)) continue;
+    const key = bare.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(bare);
+  }
+  // Prefer 3-letter AA forms (e.g. Val600Glu) over 1-letter (V600E) because
+  // ClinVar record titles contain the 3-letter form.
+  const is3Letter = (f: string) => /^[A-Z][a-z]{2}\d+[A-Z][a-z]{2}$/.test(f);
+  clean.sort((a, b) => Number(is3Letter(b)) - Number(is3Letter(a)));
+  const top = clean.slice(0, 2);
+  const out: string[] = [];
+  for (const f of top) out.push(`${g}[gene] AND ${f}`);
+  for (const f of top) out.push(`${g}[gene] AND ${f}[All Fields]`);
+  return out;
 }
 
 function shortestProteinForm(forms: string[]): string {
