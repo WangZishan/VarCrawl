@@ -6,6 +6,7 @@ import { VariantPanel } from "@/components/VariantPanel";
 import { ResultsList } from "@/components/ResultsList";
 import { ClinvarResults } from "@/components/ClinvarResults";
 import type { Assembly } from "@/lib/hgvs/types";
+import { ExportControls } from "@/components/ExportControls";
 
 interface VariantString { text: string; label: string }
 
@@ -210,6 +211,7 @@ export default function Page() {
   const [clinvar, setClinvar] = useState<ClinvarResponse | null>(null);
   const [loading, setLoading] = useState<"idle" | "expanding" | "searching">("idle");
   const [error, setError] = useState<string | null>(null);
+  
 
   async function handleSearch(query: string, assembly: Assembly) {
     setError(null);
@@ -336,9 +338,76 @@ export default function Page() {
     }
   }
 
+  async function handleDownload(format: "json" | "csv" = "json") {
+    const payload = {
+      query: expand?.input ?? null,
+      expand,
+      pubmed,
+      clinvar,
+    };
+
+    const fallbackClientDownload = () => {
+      try {
+        const dataStr = JSON.stringify({ generatedAt: new Date().toISOString(), ...payload }, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const safeQuery = (expand?.input ?? "varcrawl").replace(/[^a-z0-9_-]/gi, "_").slice(0, 80);
+        const filename = `varcrawl-summary-${safeQuery}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error("Fallback download failed", e);
+      }
+    };
+
+    try {
+      const res = await fetch(`/api/export?format=${encodeURIComponent(format)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        console.error("Export endpoint returned error", await res.text());
+        fallbackClientDownload();
+        return;
+      }
+
+      const blob = await res.blob();
+      let filename = "varcrawl-summary";
+      const cd = res.headers.get("content-disposition") || res.headers.get("Content-Disposition") || "";
+      const m = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/.exec(cd);
+      if (m) {
+        filename = decodeURIComponent(m[1] ?? m[2] ?? filename);
+      } else if (expand?.input) {
+        const safeQuery = (expand.input ?? "varcrawl").replace(/[^a-z0-9_-]/gi, "_").slice(0, 80);
+        filename = `varcrawl-summary-${safeQuery}-${new Date().toISOString().replace(/[:.]/g, "-")}.${format === "csv" ? "csv" : "json"}`;
+      } else {
+        filename = `varcrawl-summary.${format === "csv" ? "csv" : "json"}`;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Server export failed", e);
+      fallbackClientDownload();
+    }
+    }
+
   return (
-    <main>
-      <h1>VarCrawl</h1>
+    <main className="container">
+      <h1 className="title">VarCrawl</h1>
       <p className="subtitle">
         Paste a mutation in any HGVS-like notation. We expand it into every way and search PubMed, Europe PMC, and ClinVar for you.
       </p>
@@ -366,6 +435,8 @@ export default function Page() {
       <SearchForm onSearch={handleSearch} disabled={loading !== "idle"} />
 
       {error && <div className="error">{error}</div>}
+
+      <ExportControls expand={expand} pubmed={pubmed} clinvar={clinvar} onDownload={handleDownload} />
 
       {loading === "expanding" && <p className="spinner">Expanding mutation representations…</p>}
       {expand && <VariantPanel data={expand} />}

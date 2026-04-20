@@ -18,9 +18,13 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/user-event": "^14.4.3",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "jsdom": "^29.0.2",
+    "playwright": "^1.40.0",
     "typescript": "^5.5.3",
     "vitest": "^1.6.0"
   }
