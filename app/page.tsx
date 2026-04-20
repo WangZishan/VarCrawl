@@ -338,7 +338,7 @@ export default function Page() {
     }
   }
 
-  async function handleDownload(format: "json" | "csv" = "json") {
+  async function handleDownload(format: "json" | "xlsx" = "json") {
     const payload = {
       query: expand?.input ?? null,
       expand,
@@ -386,9 +386,9 @@ export default function Page() {
         filename = decodeURIComponent(m[1] ?? m[2] ?? filename);
       } else if (expand?.input) {
         const safeQuery = (expand.input ?? "varcrawl").replace(/[^a-z0-9_-]/gi, "_").slice(0, 80);
-        filename = `varcrawl-summary-${safeQuery}-${new Date().toISOString().replace(/[:.]/g, "-")}.${format === "csv" ? "csv" : "json"}`;
+        filename = `varcrawl-summary-${safeQuery}-${new Date().toISOString().replace(/[:.]/g, "-")}.${format === "xlsx" ? "xlsx" : "json"}`;
       } else {
-        filename = `varcrawl-summary.${format === "csv" ? "csv" : "json"}`;
+        filename = `varcrawl-summary.${format === "xlsx" ? "xlsx" : "json"}`;
       }
 
       const url = URL.createObjectURL(blob);

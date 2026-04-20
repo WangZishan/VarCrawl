@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 import { spawn } from "child_process";
 import fs from "fs/promises";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3003";
 
 async function waitForServer(url: string, timeout = 30000) {
   const start = Date.now();
@@ -26,10 +26,42 @@ async function waitForServer(url: string, timeout = 30000) {
 
 describe("End-to-end export flow", async () => {
   it("loads UI, runs search, and downloads exported JSON", async () => {
-    const dev = spawn("pnpm", ["dev"], { shell: true, stdio: "pipe" });
+    const dev = spawn("pnpm", ["dev"], { shell: true, stdio: "pipe", env: { ...process.env, PORT: "3003" } });
 
     try {
-      await waitForServer(BASE_URL);
+      // Try to detect the actual URL printed by Next.js on startup from stdout.
+      const detectedUrl = await new Promise<string | null>((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            resolve(null);
+          }
+        }, 30000);
+
+        const handleChunk = (chunk: Buffer) => {
+          const text = chunk.toString();
+          const m = text.match(/https?:\/\/localhost:\d+/);
+          if (m && !settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve(m[0]);
+          }
+        };
+
+        dev.stdout?.on("data", handleChunk);
+        dev.stderr?.on("data", handleChunk);
+        // If the process exits early, resolve null.
+        dev.on("exit", () => {
+          if (!settled) {
+            settled = true;
+            resolve(null);
+          }
+        });
+      });
+
+      const serverUrl = detectedUrl ?? BASE_URL;
+      await waitForServer(serverUrl);
 
       const browser = await chromium.launch();
       const context = await browser.newContext({ acceptDownloads: true });
@@ -58,7 +90,7 @@ describe("End-to-end export flow", async () => {
         route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(resp) });
       });
 
-      await page.goto(BASE_URL, { waitUntil: "networkidle" });
+      await page.goto(serverUrl, { waitUntil: "networkidle" });
 
       // Fill search form
       await page.fill('input[placeholder="e.g. BRAF p.V600E"]', "BRAF p.V600E");

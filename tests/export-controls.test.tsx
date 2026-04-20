@@ -26,11 +26,11 @@ describe("ExportControls", () => {
     render(<ExportControls expand={{}} pubmed={null} clinvar={null} onDownload={onDownload} />);
 
     const select = screen.getByRole("combobox");
-    await userEvent.selectOptions(select, "csv");
-    expect((select as HTMLSelectElement).value).toBe("csv");
+    await userEvent.selectOptions(select, "xlsx");
+    expect((select as HTMLSelectElement).value).toBe("xlsx");
 
     const button = screen.getByRole("button", { name: /download/i });
     await userEvent.click(button);
-    expect(onDownload).toHaveBeenCalledWith("csv");
+    expect(onDownload).toHaveBeenCalledWith("xlsx");
   });
 });

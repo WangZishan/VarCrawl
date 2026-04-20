@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import ExcelJS from "exceljs";
 
 export const runtime = "nodejs";
 
@@ -23,35 +24,45 @@ export async function POST(req: NextRequest) {
   const safeQuery = (summary.query ?? "varcrawl").toString().replace(/[^a-z0-9_-]/gi, "_").slice(0, 80);
   const timestamp = generatedAt.replace(/[:.]/g, "-");
 
-  if (format.toLowerCase() === "csv") {
-    const rows: string[] = [];
-    rows.push(["source", "type", "id", "title", "gene", "matchedBy", "extra"].join(","));
+  if (format.toLowerCase() === "xlsx") {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Summary");
+
+    sheet.columns = [
+      { header: "source", key: "source", width: 12 },
+      { header: "type", key: "type", width: 12 },
+      { header: "id", key: "id", width: 20 },
+      { header: "title", key: "title", width: 60 },
+      { header: "gene", key: "gene", width: 20 },
+      { header: "matchedBy", key: "matchedBy", width: 40 },
+      { header: "extra", key: "extra", width: 40 },
+    ];
 
     if (Array.isArray(summary.pubmed?.articles)) {
       for (const a of summary.pubmed.articles) {
-        const title = (a.title ?? "").replace(/"/g, '""');
-        const matchedBy = (Array.isArray(a.matchedBy) ? a.matchedBy.join('; ') : '').replace(/"/g, '""');
-        const authors = (Array.isArray(a.authors) ? a.authors.join('; ') : '').replace(/"/g, '""');
-        const extra = `${authors}${a.journal ? ' | ' + (a.journal ?? '') : ''}${a.pubDate ? ' | ' + (a.pubDate ?? '') : ''}`.replace(/"/g, '""');
-        rows.push(['pubmed', 'article', String(a.pmid ?? ''), `"${title}"`, '', `"${matchedBy}"`, `"${extra}"`].join(','));
+        const title = a.title ?? "";
+        const matchedBy = Array.isArray(a.matchedBy) ? a.matchedBy.join("; ") : "";
+        const authors = Array.isArray(a.authors) ? a.authors.join("; ") : "";
+        const extra = `${authors}${a.journal ? " | " + (a.journal ?? "") : ""}${a.pubDate ? " | " + (a.pubDate ?? "") : ""}`;
+        sheet.addRow({ source: "pubmed", type: "article", id: String(a.pmid ?? ""), title, gene: "", matchedBy, extra });
       }
     }
 
     if (Array.isArray(summary.clinvar?.records)) {
       for (const r of summary.clinvar.records) {
-        const title = (r.title ?? r.accession ?? '').replace(/"/g, '""');
-        const matchedBy = (Array.isArray(r.matchedBy) ? r.matchedBy.join('; ') : '').replace(/"/g, '""');
-        const extra = `${r.clinicalSignificance ?? ''}${r.reviewStatus ? ' | ' + (r.reviewStatus ?? '') : ''}`.replace(/"/g, '""');
-        rows.push(['clinvar', 'record', String(r.uid ?? ''), `"${title}"`, r.gene ?? '', `"${matchedBy}"`, `"${extra}"`].join(','));
+        const title = r.title ?? r.accession ?? "";
+        const matchedBy = Array.isArray(r.matchedBy) ? r.matchedBy.join("; ") : "";
+        const extra = `${r.clinicalSignificance ?? ""}${r.reviewStatus ? " | " + (r.reviewStatus ?? "") : ""}`;
+        sheet.addRow({ source: "clinvar", type: "record", id: String(r.uid ?? ""), title, gene: r.gene ?? "", matchedBy, extra });
       }
     }
 
-    const csv = rows.join('\n');
-    const filename = `varcrawl-summary-${safeQuery}-${timestamp}.csv`;
-    return new Response(csv, {
+    const buffer = await workbook.xlsx.writeBuffer();
+    const filename = `varcrawl-summary-${safeQuery}-${timestamp}.xlsx`;
+    return new Response(Buffer.from(buffer), {
       status: 200,
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });

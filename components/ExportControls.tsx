@@ -7,12 +7,12 @@ interface Props {
   expand?: unknown | null;
   pubmed?: unknown | null;
   clinvar?: unknown | null;
-  onDownload: (format: "json" | "csv") => void | Promise<void>;
-  defaultFormat?: "json" | "csv";
+  onDownload: (format: "json" | "xlsx") => void | Promise<void>;
+  defaultFormat?: "json" | "xlsx";
 }
 
 export function ExportControls({ expand, pubmed, clinvar, onDownload, defaultFormat = "json" }: Props) {
-  const [format, setFormat] = useState<"json" | "csv">(defaultFormat);
+  const [format, setFormat] = useState<"json" | "xlsx">(defaultFormat);
 
   if (!expand && !pubmed && !clinvar) return null;
 
@@ -21,9 +21,9 @@ export function ExportControls({ expand, pubmed, clinvar, onDownload, defaultFor
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span className="muted-small">Format:</span>
-          <select value={format} onChange={(e) => setFormat(e.target.value as "json" | "csv") }>
+          <select value={format} onChange={(e) => setFormat(e.target.value as "json" | "xlsx") }>
             <option value="json">JSON</option>
-            <option value="csv">CSV</option>
+            <option value="xlsx">XLSX</option>
           </select>
         </label>
         <button onClick={() => onDownload(format)} className="btn">Download</button>
